@@ -128,7 +128,9 @@ def _report(out, plants, features, model, centers, folds, provenance, leaves):
     lines.extend([
         "", "![二维 PCA 聚类图](cluster_2d.png)", "",
         "本机交互输出位于 interactive/。cluster_3d.html 可旋转 PCA 簇图并查阅逐叶特征。"
-        "plant_geometry_3d.html 可逐株旋转拟合茎线、叶片可见中线和最近点对。", "",
+        "plant_geometry_3d.html 可逐株旋转拟合茎线、叶片可见中线和最近点对。"
+        "plant_clusters_3d.html 按独立逐株模型给各叶着色。", "",
+        "[逐株三分类报告](plant_clusters/PLANT_CLUSTER_REPORT.md)", "",
         "## 逐株结果", "",
         "| 植株 | 输入状态 | 叶片数 | 最近点对 | 完整特征 | C1 | C2 | C3 | 倾角熵中位数（bit） |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|",

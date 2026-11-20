@@ -4,6 +4,7 @@ import argparse
 import csv
 from collections import defaultdict
 from hashlib import sha256
+import json
 import os
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from src.visualization import CLUSTER_COLORS, UNASSIGNED_COLOR, setup_3d
 ROOT = Path(__file__).resolve().parent
 
 
-def read_results(folder):
+def read_results(folder, cluster_scope="auto"):
     with (folder / "input_manifest.csv").open(encoding="utf-8-sig", newline="") as stream:
         inputs = {row["plant_id"]: row for row in csv.DictReader(stream)
                   if row["input_status"] == "ok"}
@@ -32,7 +33,33 @@ def read_results(folder):
             groups[plant][leaf] = row
     if not groups:
         raise ValueError("No validated plants with V1.1 leaf results")
-    return inputs, groups
+    within = folder / "plant_clusters" / "leaf_clusters.csv"
+    if cluster_scope == "plant" or (cluster_scope == "auto" and within.is_file()):
+        _read_plant_clusters(within, inputs, groups)
+        return inputs, groups, "Within-plant K=3"
+    return inputs, groups, "Batch clusters"
+
+
+def _read_plant_clusters(path, inputs, groups):
+    provenance = json.loads((path.parent / "provenance.json").read_text(encoding="utf-8"))
+    for plant in groups:
+        reference = provenance.get("inputs", {}).get(plant, {})
+        if any(reference.get(key) != inputs[plant][key] for key in ("csv_sha256", "txt_sha256")):
+            raise ValueError(f"{plant}: within-plant results belong to a different point cloud")
+
+    labels = {}
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        for row in csv.DictReader(stream):
+            key = row["plant_id"], int(row["leaf_id"])
+            cluster = row["plant_cluster_id"]
+            if key in labels or (cluster and cluster not in CLUSTER_COLORS):
+                raise ValueError(f"Invalid within-plant cluster row for {key[0]} leaf {key[1]}")
+            labels[key] = cluster
+    expected = {(plant, leaf) for plant, rows in groups.items() for leaf in rows}
+    if labels.keys() != expected:
+        raise ValueError("Within-plant cluster rows differ from the V1.1 leaf table")
+    for (plant, leaf), cluster in labels.items():
+        groups[plant][leaf]["cluster_id"] = cluster
 
 
 def _source_bytes(directory, record, kind):
@@ -45,7 +72,7 @@ def _source_bytes(directory, record, kind):
     return payload
 
 
-def draw_plant(ax, plant, xyz, labels, leaves):
+def draw_plant(ax, plant, xyz, labels, leaves, scope):
     from matplotlib.lines import Line2D
 
     visible = np.isfinite(xyz).all(axis=1) & (labels >= 0)
@@ -94,17 +121,17 @@ def draw_plant(ax, plant, xyz, labels, leaves):
             Line2D([], [], color="#b12635", label="Nearest segment"),
         ])
     setup_3d(ax, xyz[visible])
-    ax.set_title(f"{plant}  |  {len(leaves)} leaves  |  {len(clusters)} clusters", loc="left")
+    ax.set_title(f"{plant}  |  {len(leaves)} leaves  |  {len(clusters)} clusters\n{scope}", loc="left")
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.01, 1.0),
               frameon=False, fontsize=8, markerscale=1.5)
     ax.grid(alpha=0.3)
 
 
-def make_viewer(results, csv_dir, txt_dir, sample=None):
+def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto"):
     import matplotlib.pyplot as plt
     from matplotlib.widgets import RadioButtons
 
-    inputs, leaves = read_results(results)
+    inputs, leaves, scope = read_results(results, cluster_scope)
     plants = sorted(leaves)
     if sample is not None and sample not in plants:
         raise ValueError(f"Plant {sample!r} is missing from the V1.1 results")
@@ -125,7 +152,7 @@ def make_viewer(results, csv_dir, txt_dir, sample=None):
         xyz, labels = load_pair(_source_bytes(csv_dir, source, "csv"),
                                 _source_bytes(txt_dir, source, "txt"))
         camera = (ax.elev, ax.azim)
-        draw_plant(ax, plant, xyz, labels, leaves[plant])
+        draw_plant(ax, plant, xyz, labels, leaves[plant], scope)
         if rendered:
             ax.view_init(elev=camera[0], azim=camera[1])
         rendered = True
@@ -152,6 +179,8 @@ def make_viewer(results, csv_dir, txt_dir, sample=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", help="plant to display first")
+    parser.add_argument("--cluster-scope", choices=("auto", "plant", "batch"), default="auto",
+                        help="use within-plant clusters when available, or select one scope")
     parser.add_argument("--results-dir", type=Path, default=ROOT / "outputs" / "v1.1")
     parser.add_argument("--data-dir", type=Path, help="semantic CSV directory")
     parser.add_argument("--txt-dir", type=Path, help="matching original TXT directory")
@@ -171,7 +200,8 @@ def main():
         if not txt_dir.is_dir():
             raise FileNotFoundError(f"TXT input directory not found: {txt_dir}")
         # Keep the selector alive while the GUI event loop runs.
-        fig, selector = make_viewer(args.results_dir, csv_dir, txt_dir, args.sample)
+        fig, selector = make_viewer(args.results_dir, csv_dir, txt_dir,
+                                    args.sample, args.cluster_scope)
     except (ValueError, OSError) as exc:
         parser.exit(2, f"{exc}\n")
 

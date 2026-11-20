@@ -105,9 +105,10 @@ def _cluster_3d(leaves, model):
     return fig
 
 
-def _plant_3d(leaves, geometry):
+def _plant_3d(leaves, geometry, plant_clusters=None):
     fig = go.Figure()
     grouped = {}
+    scope = "Within-plant K=3" if plant_clusters is not None else "Batch clusters"
     for plant, data in geometry.items():
         start = len(fig.data)
         if data["stem"] is not None:
@@ -117,7 +118,9 @@ def _plant_3d(leaves, geometry):
         for row in (r for r in leaves if r["plant_id"] == plant):
             leaf_id = row["leaf_id"]
             line = data["leaves"].get(leaf_id)
-            cluster = row["cluster_id"] or "unassigned"
+            cluster_id = (row["cluster_id"] if plant_clusters is None
+                          else plant_clusters[(plant, leaf_id)])
+            cluster = cluster_id or "unassigned"
             title = f"Leaf {leaf_id} · {cluster}"
             color = COLORS.get(cluster, UNASSIGNED)
             label_group = f"{plant}/{leaf_id}"
@@ -132,7 +135,8 @@ def _plant_3d(leaves, geometry):
                                   mode="lines+markers", name=f"{title} nearest pair",
                                   legendgroup=label_group, showlegend=line is None,
                                   text=["Leaf endpoint", "Stem endpoint"],
-                                  marker=dict(color=["#b12635", "#e8a423"], size=4),
+                                  marker=dict(color=[color if plant_clusters is not None else "#b12635",
+                                                     "#e8a423"], size=4),
                                   line=dict(color="#b12635", width=2),
                                   hovertemplate=("%{text}<br>x=%{x:.5g}<br>y=%{y:.5g}<br>z=%{z:.5g}"
                                                  f"<extra>{title}</extra>"))
@@ -142,8 +146,8 @@ def _plant_3d(leaves, geometry):
     for plant, indices in grouped.items():
         options.append({"label": plant, "method": "update",
                         "args": [{"visible": [i in indices for i in range(len(fig.data))]},
-                                 {"title.text": f"Plant {plant} · fitted geometry and nearest pairs"}]})
-    title = "V1.1 · fitted geometry and nearest pairs"
+                                 {"title.text": f"Plant {plant} · {scope}"}]})
+    title = f"V1.1 · {scope}"
     if options:
         title = options[0]["args"][1]["title.text"]
         for trace, visible in zip(fig.data, options[0]["args"][0]["visible"]):
@@ -155,7 +159,7 @@ def _plant_3d(leaves, geometry):
     return fig
 
 
-def write_figures(path: Path, leaves, model, geometry):
+def write_figures(path: Path, leaves, model, geometry, plant_cluster_rows):
     _save_png(cluster_figure(leaves, model), path / "cluster_2d.png")
     _save_png(distribution_figure(leaves), path / "feature_distributions.png")
     interactive = path / "interactive"
@@ -164,3 +168,7 @@ def write_figures(path: Path, leaves, model, geometry):
                                          div_id="maize-cluster-3d")
     _plant_3d(leaves, geometry).write_html(interactive / "plant_geometry_3d.html",
                                           include_plotlyjs="directory", div_id="maize-plant-3d")
+    labels = {(r["plant_id"], r["leaf_id"]): r["plant_cluster_id"] for r in plant_cluster_rows}
+    _plant_3d(leaves, geometry, labels).write_html(interactive / "plant_clusters_3d.html",
+                                                   include_plotlyjs="directory",
+                                                   div_id="maize-plant-clusters-3d")

@@ -17,12 +17,14 @@ from .phenotype_clusters import cluster_leaves
 from .phenotype_features import ENTROPY_EDGES, PARAMS, RULES, VARIANTS, analyse_plant
 from .phenotype_plots import write_figures
 from .phenotype_report import write_outputs
+from .plant_clustering import cluster_plant, plant_cluster_summary, write_plant_clusters
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEZONE = timezone(timedelta(hours=8))
 SOURCES = [
     "VERSION", "requirements.txt", "run_analysis.py", "src/geometry.py", "src/robust_geometry.py",
     "src/leaf.py", "src/stem.py", "src/io_utils.py", "src/nearest_attachment.py", "src/tables.py",
+    "src/plant_clustering.py", "src/visualization.py",
     *[f"src/phenotype_{name}.py" for name in ("features", "clusters", "plots", "report", "pipeline")],
 ]
 
@@ -75,6 +77,7 @@ def run_analysis(csv_dir: Path, txt_dir: Path, output: Path, sample: str | None 
     output.parent.mkdir(parents=True, exist_ok=True)
     provenance = _provenance()
     leaves, manifest, quality, geometry = [], [], {}, {}
+    plant_cluster_rows, plant_cluster_summaries, plant_cluster_centers = [], [], []
     with threadpool_limits(limits=1):
         for plant in plants:
             record = {
@@ -88,12 +91,17 @@ def run_analysis(csv_dir: Path, txt_dir: Path, output: Path, sample: str | None 
             except (InputError, OSError) as exc:
                 record.update(input_status="failed", analysis_status="INPUT_FAILED",
                               detail=str(exc) if isinstance(exc, InputError) else "input read failed")
+                plant_cluster_summaries.append(plant_cluster_summary(plant, None, "INPUT_FAILED"))
                 print(f"{plant}: {record['detail']}", flush=True)
                 continue
             record.update(source_points=len(xyz),
                           nonfinite_xyz_rows=int((~np.isfinite(xyz).all(axis=1)).sum()))
             rows, stem, audits, geometry[plant] = analyse_plant(plant, xyz, labels)
             leaves.extend(rows)
+            classified, summary, centroids = cluster_plant(plant, xyz, labels, rows)
+            plant_cluster_rows.extend(classified)
+            plant_cluster_summaries.append(summary)
+            plant_cluster_centers.extend(centroids)
             quality[plant] = {"stem": stem, "leaves": audits}
             located = sum(r["status"] == "ok" for r in rows)
             if not rows:
@@ -108,9 +116,13 @@ def run_analysis(csv_dir: Path, txt_dir: Path, output: Path, sample: str | None 
         staged = Path(work) / "result"
         staged.mkdir()
         write_outputs(staged, leaves, manifest, quality, provenance, model, centers, folds)
-        write_figures(staged, leaves, model, geometry)
+        write_plant_clusters(staged, plant_cluster_rows, plant_cluster_summaries,
+                             plant_cluster_centers, manifest, provenance)
+        write_figures(staged, leaves, model, geometry, plant_cluster_rows)
         staged.rename(output)
     ok_count = sum(r["input_status"] == "ok" for r in manifest)
+    classified = sum(row["assigned_leaves"] for row in plant_cluster_summaries)
     print(f"{ok_count}/{len(plants)} plants validated, {len(leaves)} leaves, "
-          f"{model['assigned_leaves']} clustered. Outputs: {output}", flush=True)
-    return int(any(r["analysis_status"] != "ok" for r in manifest))
+          f"{classified} clustered within plants, {model['assigned_leaves']} clustered across plants. "
+          f"Outputs: {output}", flush=True)
+    return int(any(r["status"] != "ok" for r in plant_cluster_summaries))

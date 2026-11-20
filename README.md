@@ -20,6 +20,12 @@ V1.1 以 V1.0 全局最近邻叶基为起点，从玉米语义点云提取叶片
 
 ![33 片完整特征叶的二维 PCA 聚类图](outputs/v1.1/cluster_2d.png)
 
+## 逐株三分类
+
+14 株各自得到 C1、C2、C3 三个非空簇，90 片叶全部有逐株簇编号。每株使用四项直接从已核验原始坐标计算的特征独立建模，簇编号按本株簇中心的最近茎点高度排序。整批六特征结果与逐株结果分别保存在原输出和 plant_clusters/。
+
+[逐株三分类报告](outputs/v1.1/plant_clusters/PLANT_CLUSTER_REPORT.md) · [90 片叶的分簇](outputs/v1.1/plant_clusters/leaf_clusters.csv) · [特征与质量口径](docs/V1.1_METHODS.md#逐株三分类)
+
 ## 数据与复现
 
 使用 Python 3.10 或以上及 requirements.txt 中的依赖。输入为逐株同名的原始 TXT 和语义 CSV，CSV 必须含 X、Y、Z、semantic。标签 −1 为背景，0 为茎秆，全部正整数各自代表一片叶。输入格式及逐行核验沿用 [V1.0 算法说明](docs/ALGORITHM.md)。
@@ -38,11 +44,11 @@ python -m unittest discover -s tests -v
 - leaf_features.csv 保存每片叶最近点对、源点行号、各项特征、质量状态及簇 ID。plant_summary.csv 和 feature_summary.csv 分别汇总逐株与总体特征。
 - cluster_model.json、cluster_centers.csv、cluster_stability.csv 保存模型配置、质心、评价指标和逐株留出结果。
 - input_manifest.csv、quality_details.json、run_provenance.json 保存输入哈希、质量诊断、软件依赖和计算参数。
-- [二维聚类图](outputs/v1.1/cluster_2d.png)和[特征分布图](outputs/v1.1/feature_distributions.png)可直接查看。每次运行还在本机的 interactive/ 目录生成 cluster_3d.html（可旋转的 PCA 聚类图）和 plant_geometry_3d.html（可切换植株的拟合茎线、叶中线和最近点对）。
+- [二维聚类图](outputs/v1.1/cluster_2d.png)和[特征分布图](outputs/v1.1/feature_distributions.png)可直接查看。每次运行还在本机的 interactive/ 目录生成 cluster_3d.html（可旋转的 PCA 聚类图）和 plant_geometry_3d.html（整批模型的逐株几何图）。plant_clusters_3d.html 按逐株模型给叶片着色。
 - 单株分析输出叶片特征和空间核验，跨植株批次额外拟合聚类。V1.0 最近邻独立入口仍为 python -m src.nearest_attachment，V6 运行方式见历史归档。
 
 坐标的物理单位待确认。质量标记和独立解剖叶基验证范围见批次报告。
 
 ## Python 交互查看器
 
-在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，点云按 C1、C2、C3 或未分簇着色，图例列出每片叶的原始叶号和簇编号。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。
+在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，图例列出每片叶的原始叶号和簇编号。默认显示逐株三分类，同时可用 --cluster-scope batch 查看整批模型。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。

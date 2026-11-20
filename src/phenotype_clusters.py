@@ -21,7 +21,7 @@ def _sufficient(matrix):
     return len(matrix) > K and len(np.unique(matrix, axis=0)) >= K
 
 
-def _fit(matrix):
+def fit_standardized_kmeans(matrix):
     scaler = StandardScaler()
     standardized = scaler.fit_transform(matrix)
     model = KMeans(n_clusters=K, n_init=N_INIT, random_state=SEED,
@@ -46,7 +46,7 @@ def _stability(matrix, groups, reference, requested_plants):
             fold["status"] = "INSUFFICIENT_TRAINING_DATA"
             continue
 
-        scaler, _, model = _fit(matrix[train])
+        scaler, _, model = fit_standardized_kmeans(matrix[train])
         if len(set(model.labels_)) != K:
             fold["status"] = "DEGENERATE_TRAINING_CLUSTERS"
             continue
@@ -92,7 +92,7 @@ def cluster_leaves(leaves, plant_ids):
     centroids, folds = [], []
     if metadata["status"] == "ok":
         with threadpool_limits(limits=1):
-            scaler, standardized, model = _fit(matrix)
+            scaler, standardized, model = fit_standardized_kmeans(matrix)
             if len(set(model.labels_)) < K:
                 metadata["status"] = "DEGENERATE_CLUSTERS"
             else:
