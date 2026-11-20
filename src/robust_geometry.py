@@ -236,10 +236,13 @@ def leaf_graph(points: np.ndarray, params: ParametersV2) -> dict:
             'other_nodes':nodes[~keep], 'component_sizes_source_points':sorted(np.bincount(groups,weights=counts).astype(int).tolist(),reverse=True)}
 
 
-def geodesic_midline(points: np.ndarray, stem: dict, params: ParametersV2) -> tuple[dict,dict]:
+def geodesic_midline(points: np.ndarray, stem: dict, params: ParametersV2, *, anchor=None) -> tuple[dict,dict]:
     cloud = leaf_graph(points,params)
     nodes,graph = cloud['nodes'],cloud['graph']
-    distance,_,_ = project_to_curve(nodes,stem['curve'])
+    if anchor is None:
+        distance,_,_ = project_to_curve(nodes,stem['curve'])
+    else:
+        distance = np.linalg.norm(nodes-anchor,axis=1)
     seed = int(np.argmin(distance))
     first = dijkstra(graph,directed=False,indices=seed)
     end1 = int(np.argmax(first))
@@ -250,7 +253,10 @@ def geodesic_midline(points: np.ndarray, stem: dict, params: ParametersV2) -> tu
     band = max(extent*.035,cloud['spacing']*2)
     regions = [np.flatnonzero(from_end1 <= band),np.flatnonzero(from_end1 >= extent-band)]
     endpoint_centers = np.array([np.median(nodes[r],axis=0) for r in regions])
-    end_dist,end_at,_ = project_to_curve(endpoint_centers,stem['curve'])
+    if anchor is None:
+        end_dist,_,_ = project_to_curve(endpoint_centers,stem['curve'])
+    else:
+        end_dist = np.linalg.norm(endpoint_centers-anchor,axis=1)
     root_end = int(np.argmin(end_dist))
     root_region = regions[root_end]
     root_center = endpoint_centers[root_end]
@@ -281,10 +287,14 @@ def geodesic_midline(points: np.ndarray, stem: dict, params: ParametersV2) -> tu
                method='two_ended_surface_geodesic_penalized_bspline',sections=sections,
                retained_fraction=cloud['retained_fraction'],voxel_size=cloud['voxel_size'],
                graph_spacing=cloud['spacing'],graph_nodes=len(nodes),component_count=cloud['component_count'],
-               endpoints=endpoint_centers,endpoint_stem_distances=end_dist,
+               endpoints=endpoint_centers,
                other_component_nodes=cloud['other_nodes'],
                component_sizes_source_points=cloud['component_sizes_source_points'],
                reliable=cloud['retained_fraction'] >= .98,warnings=[])
+    if anchor is not None:
+        fit['endpoint_anchor_distances'] = end_dist
+        return fit, {}
+    fit['endpoint_stem_distances'] = end_dist
     # Observed proximal support, with geometric contact uncertainty kept separate.
     base = fit['curve'][0]
     gap,at,foot = project_to_curve(base[None,:],stem['curve'])
