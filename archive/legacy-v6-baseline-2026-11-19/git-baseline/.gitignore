@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.vscode/
+.maize-data-dir
+.env
+.env.*
+README.local.md
+/results/
+/logs/
+/data/
+/csvdata/
+/raw/
+/backups/

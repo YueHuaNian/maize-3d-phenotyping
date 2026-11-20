@@ -1,0 +1,37 @@
+{
+  "release_version": "v1.0",
+  "release_run": "run_20261119_214237_773592",
+  "reference_v6_run": "run_20261119_212334_529951",
+  "verified_source_files": 28,
+  "identical_geometry_or_data_files": 104,
+  "identical_files_by_type": {
+    ".csv": 48,
+    ".json": 56
+  },
+  "batch_report_fields_changed": [
+    "code_sha256",
+    "release_version"
+  ],
+  "unit_tests_passed": 13,
+  "formal_features": [
+    {
+      "plant_id": "2-5-1",
+      "leaf_id": 4,
+      "leaf_angle_deg": 51.16052995849295,
+      "curvature_rms_norm": 2.094437308563563
+    },
+    {
+      "plant_id": "2-5-1",
+      "leaf_id": 6,
+      "leaf_angle_deg": 53.03720686402422,
+      "curvature_rms_norm": 2.4708448527535545
+    }
+  ],
+  "historical_snapshot": {
+    "workspace_relative_path": "归档/玉米点云_v1.0_整理前_20261119_214345.zip",
+    "archive_sha256": "e1b6174e39805928a0bf9c29ad50c0f093809858b8e6e4ab2ad50409ac200e40",
+    "v5_member_directory": "Code/results/v5_diagnostic/run_20261119_210754_947919",
+    "archived_files": 994,
+    "discardable_python_cache_files": 24
+  }
+}

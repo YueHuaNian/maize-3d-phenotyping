@@ -1,0 +1,597 @@
+{
+  "requested_count": 14,
+  "processed_count": 14,
+  "failed_plants": [],
+  "leaf_instance_count": 90,
+  "formal_checks_run": 90,
+  "all_processed_sources_unchanged": true,
+  "positions": [
+    {
+      "leaf_id": 1,
+      "plants_with_label": 14,
+      "point_count_distribution": {
+        "min": 389.0,
+        "q25": 1046.5,
+        "median": 1851.0,
+        "q75": 3246.0,
+        "max": 6513.0
+      },
+      "visible_midlines": 14,
+      "medium_high_midlines": 13,
+      "v5_candidates": 13,
+      "v4_candidates": 10,
+      "attachment_medium_high_diagnostic": 1,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "HIGH": 10,
+        "MEDIUM": 3,
+        "LOW": 1
+      },
+      "attachment_grades": {
+        "LOW": 12,
+        "FAILED": 1,
+        "HIGH": 1
+      },
+      "geometry_grades": {
+        "LOW": 10,
+        "FAILED": 4
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.9285714285714286,
+      "v5_candidates_rate": 0.9285714285714286,
+      "attachment_medium_high_diagnostic_rate": 0.07142857142857142,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 2,
+      "plants_with_label": 14,
+      "point_count_distribution": {
+        "min": 789.0,
+        "q25": 1679.0,
+        "median": 3800.5,
+        "q75": 4989.0,
+        "max": 7860.0
+      },
+      "visible_midlines": 14,
+      "medium_high_midlines": 11,
+      "v5_candidates": 13,
+      "v4_candidates": 10,
+      "attachment_medium_high_diagnostic": 1,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 3,
+        "HIGH": 8,
+        "MEDIUM": 3
+      },
+      "attachment_grades": {
+        "LOW": 12,
+        "FAILED": 1,
+        "MEDIUM": 1
+      },
+      "geometry_grades": {
+        "LOW": 10,
+        "FAILED": 4
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.7857142857142857,
+      "v5_candidates_rate": 0.9285714285714286,
+      "attachment_medium_high_diagnostic_rate": 0.07142857142857142,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 3,
+      "plants_with_label": 14,
+      "point_count_distribution": {
+        "min": 850.0,
+        "q25": 2797.0,
+        "median": 4878.0,
+        "q75": 7526.75,
+        "max": 9610.0
+      },
+      "visible_midlines": 14,
+      "medium_high_midlines": 11,
+      "v5_candidates": 14,
+      "v4_candidates": 8,
+      "attachment_medium_high_diagnostic": 0,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "HIGH": 9,
+        "LOW": 3,
+        "MEDIUM": 2
+      },
+      "attachment_grades": {
+        "LOW": 14
+      },
+      "geometry_grades": {
+        "LOW": 8,
+        "FAILED": 6
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.7857142857142857,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.0,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 4,
+      "plants_with_label": 14,
+      "point_count_distribution": {
+        "min": 472.0,
+        "q25": 1714.0,
+        "median": 4514.5,
+        "q75": 6366.0,
+        "max": 9001.0
+      },
+      "visible_midlines": 14,
+      "medium_high_midlines": 13,
+      "v5_candidates": 14,
+      "v4_candidates": 10,
+      "attachment_medium_high_diagnostic": 2,
+      "formal_base_medium_high": 1,
+      "formal_angles": 1,
+      "formal_curvatures": 1,
+      "midline_grades": {
+        "MEDIUM": 4,
+        "HIGH": 9,
+        "LOW": 1
+      },
+      "attachment_grades": {
+        "LOW": 12,
+        "HIGH": 2
+      },
+      "geometry_grades": {
+        "LOW": 9,
+        "FAILED": 4,
+        "MEDIUM": 1
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.9285714285714286,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.14285714285714285,
+      "formal_base_medium_high_rate": 0.07142857142857142,
+      "formal_angles_rate": 0.07142857142857142,
+      "formal_curvatures_rate": 0.07142857142857142
+    },
+    {
+      "leaf_id": 5,
+      "plants_with_label": 13,
+      "point_count_distribution": {
+        "min": 148.0,
+        "q25": 745.0,
+        "median": 1142.0,
+        "q75": 2035.0,
+        "max": 6673.0
+      },
+      "visible_midlines": 13,
+      "medium_high_midlines": 7,
+      "v5_candidates": 13,
+      "v4_candidates": 8,
+      "attachment_medium_high_diagnostic": 1,
+      "formal_base_medium_high": 1,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 6,
+        "MEDIUM": 4,
+        "HIGH": 3
+      },
+      "attachment_grades": {
+        "LOW": 12,
+        "HIGH": 1
+      },
+      "geometry_grades": {
+        "LOW": 8,
+        "FAILED": 5
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.5384615384615384,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.07692307692307693,
+      "formal_base_medium_high_rate": 0.07692307692307693,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 6,
+      "plants_with_label": 11,
+      "point_count_distribution": {
+        "min": 149.0,
+        "q25": 619.0,
+        "median": 2073.0,
+        "q75": 3548.0,
+        "max": 5784.0
+      },
+      "visible_midlines": 11,
+      "medium_high_midlines": 9,
+      "v5_candidates": 10,
+      "v4_candidates": 6,
+      "attachment_medium_high_diagnostic": 3,
+      "formal_base_medium_high": 2,
+      "formal_angles": 1,
+      "formal_curvatures": 1,
+      "midline_grades": {
+        "LOW": 2,
+        "HIGH": 5,
+        "MEDIUM": 4
+      },
+      "attachment_grades": {
+        "LOW": 7,
+        "HIGH": 2,
+        "FAILED": 1,
+        "MEDIUM": 1
+      },
+      "geometry_grades": {
+        "FAILED": 5,
+        "LOW": 5,
+        "HIGH": 1
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.8181818181818182,
+      "v5_candidates_rate": 0.9090909090909091,
+      "attachment_medium_high_diagnostic_rate": 0.2727272727272727,
+      "formal_base_medium_high_rate": 0.18181818181818182,
+      "formal_angles_rate": 0.09090909090909091,
+      "formal_curvatures_rate": 0.09090909090909091
+    },
+    {
+      "leaf_id": 7,
+      "plants_with_label": 4,
+      "point_count_distribution": {
+        "min": 812.0,
+        "q25": 1161.5,
+        "median": 1405.5,
+        "q75": 1802.25,
+        "max": 2610.0
+      },
+      "visible_midlines": 4,
+      "medium_high_midlines": 2,
+      "v5_candidates": 4,
+      "v4_candidates": 3,
+      "attachment_medium_high_diagnostic": 2,
+      "formal_base_medium_high": 1,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 2,
+        "HIGH": 2
+      },
+      "attachment_grades": {
+        "LOW": 2,
+        "HIGH": 1,
+        "MEDIUM": 1
+      },
+      "geometry_grades": {
+        "FAILED": 1,
+        "LOW": 3
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.5,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.5,
+      "formal_base_medium_high_rate": 0.25,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 8,
+      "plants_with_label": 3,
+      "point_count_distribution": {
+        "min": 694.0,
+        "q25": 1144.0,
+        "median": 1594.0,
+        "q75": 1669.5,
+        "max": 1745.0
+      },
+      "visible_midlines": 3,
+      "medium_high_midlines": 2,
+      "v5_candidates": 3,
+      "v4_candidates": 3,
+      "attachment_medium_high_diagnostic": 1,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 1,
+        "HIGH": 2
+      },
+      "attachment_grades": {
+        "HIGH": 1,
+        "LOW": 2
+      },
+      "geometry_grades": {
+        "LOW": 3
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.6666666666666666,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.3333333333333333,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 9,
+      "plants_with_label": 2,
+      "point_count_distribution": {
+        "min": 320.0,
+        "q25": 350.25,
+        "median": 380.5,
+        "q75": 410.75,
+        "max": 441.0
+      },
+      "visible_midlines": 2,
+      "medium_high_midlines": 0,
+      "v5_candidates": 2,
+      "v4_candidates": 1,
+      "attachment_medium_high_diagnostic": 0,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 2
+      },
+      "attachment_grades": {
+        "LOW": 2
+      },
+      "geometry_grades": {
+        "FAILED": 1,
+        "LOW": 1
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.0,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.0,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    },
+    {
+      "leaf_id": 10,
+      "plants_with_label": 1,
+      "point_count_distribution": {
+        "min": 248.0,
+        "q25": 248.0,
+        "median": 248.0,
+        "q75": 248.0,
+        "max": 248.0
+      },
+      "visible_midlines": 1,
+      "medium_high_midlines": 0,
+      "v5_candidates": 1,
+      "v4_candidates": 0,
+      "attachment_medium_high_diagnostic": 0,
+      "formal_base_medium_high": 0,
+      "formal_angles": 0,
+      "formal_curvatures": 0,
+      "midline_grades": {
+        "LOW": 1
+      },
+      "attachment_grades": {
+        "LOW": 1
+      },
+      "geometry_grades": {
+        "FAILED": 1
+      },
+      "visible_midlines_rate": 1.0,
+      "medium_high_midlines_rate": 0.0,
+      "v5_candidates_rate": 1.0,
+      "attachment_medium_high_diagnostic_rate": 0.0,
+      "formal_base_medium_high_rate": 0.0,
+      "formal_angles_rate": 0.0,
+      "formal_curvatures_rate": 0.0
+    }
+  ],
+  "midline_method_statistics": {
+    "geodesic_sections": {
+      "eligible_rows": 90,
+      "computed": 90,
+      "single_fit_supported": 79,
+      "selected": 17
+    },
+    "knn_shortest_path": {
+      "eligible_rows": 90,
+      "computed": 90,
+      "single_fit_supported": 79,
+      "selected": 9
+    },
+    "local_pca_sections": {
+      "eligible_rows": 90,
+      "computed": 90,
+      "single_fit_supported": 79,
+      "selected": 36
+    },
+    "principal_curve_refinement": {
+      "eligible_rows": 90,
+      "computed": 90,
+      "single_fit_supported": 79,
+      "selected": 28
+    },
+    "global_pca_baseline": {
+      "eligible_rows": 90,
+      "computed": 90,
+      "single_fit_supported": 72,
+      "selected": 0
+    }
+  },
+  "attachment_method_candidate_counts": {
+    "surface_nearest": 87,
+    "component_proximal": 83,
+    "quadratic_midline_backward": 9,
+    "local_tangent_backward": 10
+  },
+  "failure_counts": {
+    "midline": {
+      "MIDLINE_PARAMETER_OR_METHOD_INSTABILITY": 14,
+      "LOW_RAW_POINT_COUNT": 2,
+      "FRAGMENTED_DOMINANT_COMPONENT": 9
+    },
+    "attachment": {
+      "CONTACT_OUTSIDE_STRICT_BAND": 69,
+      "DISAGREEMENT_WITH_VISIBLE_PROXIMAL_END": 33,
+      "LOW_CANDIDATE_AGREEMENT_OR_BAND_STABILITY": 19,
+      "TOO_FEW_PROXIMAL_SUPPORT_POINTS": 18,
+      "LOW_RAW_POINT_COUNT": 2,
+      "NO_SUPPORTED_SURFACE_CANDIDATE": 3,
+      "CANDIDATE_DIRECTION_OR_COMPETITION_GATE": 3
+    },
+    "v4_formal_angle": {
+      "V4_BASE_GATE_NOT_MET": 85,
+      "V4_MIDLINE_GATE_NOT_MET": 22,
+      "LOW_RAW_POINT_COUNT": 2,
+      "V4_LOCAL_DIRECTION_STABILITY_GATE_NOT_MET": 1
+    },
+    "v4_formal_curvature": {
+      "V4_NO_SUPPORTED_FULL_LENGTH": 88,
+      "LOW_RAW_POINT_COUNT": 2
+    }
+  },
+  "comparisons": {
+    "v4_candidate_count": 59,
+    "v5_candidate_count": 87,
+    "both_candidate_count": 59,
+    "v5_new_candidate_count": 28,
+    "v5_lost_candidate_count": 0,
+    "absolute_candidate_height_change": {
+      "min": 0.0,
+      "q25": 0.0020285115851456648,
+      "median": 0.006408521495795738,
+      "q75": 0.015280279178946726,
+      "max": 0.24443427564243447
+    },
+    "v4_formal_base_count": 5,
+    "v5_medium_high_diagnostic_base_count": 11
+  },
+  "v5_history_comparison": {
+    "status": "COMPARED",
+    "baseline": "run_20261119_210754_947919",
+    "matched_plants": [
+      "1-1-2",
+      "1-2-1",
+      "1-2-2",
+      "1-3-1",
+      "2-1-1",
+      "2-1-2",
+      "2-2-1",
+      "2-2-2",
+      "2-3-1",
+      "2-3-2",
+      "2-4-1",
+      "2-4-2",
+      "2-5-1",
+      "2-5-2"
+    ],
+    "unmatched_plants": [],
+    "paired_diagnostic_leaf_count": 90,
+    "diagnostic_changes": [],
+    "common_formal_value_changes": [],
+    "v5_formal_scope_count": 80,
+    "v6_formal_scope_count": 90,
+    "newly_formally_evaluated_leaves": 10,
+    "formal_angles_among_newly_formally_evaluated": 0,
+    "formal_curvatures_among_newly_formally_evaluated": 0,
+    "v5_order_reference": {
+      "comparable": 177,
+      "inversions": 12,
+      "severity": {
+        "SEVERE": 1,
+        "MODERATE": 5,
+        "SMALL": 6
+      }
+    }
+  },
+  "height_order": {
+    "total_pairs": 261,
+    "comparable": 247,
+    "conflicts": 13,
+    "strict_inversions": 13,
+    "ties": 0,
+    "severity": {
+      "SEVERE": 1,
+      "MODERATE": 5,
+      "SMALL": 7
+    }
+  },
+  "raw_label_gap_counts": {
+    "CLOSE_RAW_LABEL_POINTS": 76,
+    "SEPARATED_AT_LOCAL_SCALE": 14
+  },
+  "gap_origin": "UNKNOWN from delivered data",
+  "plant_spearman_point_count_vs_midline_grade": {
+    "1-1-2": 0.9258200997725515,
+    "1-2-1": 0.9258200997725515,
+    "1-2-2": -0.101418510567422,
+    "1-3-1": 0.6172133998483678,
+    "2-1-1": -0.09759000729485333,
+    "2-1-2": 0.7906297480039135,
+    "2-2-1": 0.6414269805898185,
+    "2-2-2": 0.5246313898711126,
+    "2-3-1": 0.0,
+    "2-3-2": 0.7775419143502353,
+    "2-4-1": 0.632455532033676,
+    "2-4-2": 0.0,
+    "2-5-1": -0.37115374447904514,
+    "2-5-2": 0.11180339887498947
+  },
+  "descriptive_point_count_by_midline_grade": {
+    "FAILED": {
+      "min": null,
+      "q25": null,
+      "median": null,
+      "q75": null,
+      "max": null
+    },
+    "LOW": {
+      "min": 148.0,
+      "q25": 612.25,
+      "median": 1055.5,
+      "q75": 2862.75,
+      "max": 5072.0
+    },
+    "MEDIUM": {
+      "min": 371.0,
+      "q25": 804.25,
+      "median": 1854.0,
+      "q75": 3987.0,
+      "max": 6673.0
+    },
+    "HIGH": {
+      "min": 363.0,
+      "q25": 1503.0,
+      "median": 3125.0,
+      "q75": 6411.75,
+      "max": 9610.0
+    }
+  },
+  "plants_with_any_attachment_issue": 14,
+  "formal_gate_policy": "Every positive instance runs unmodified V4 geometry and formal gates. V5 diagnostics stay in diagnostic fields.",
+  "release_version": "v1.0",
+  "code_sha256": {
+    "src/__init__.py": "65dcc67c89364489ea50b645f6580bf8c4c5251e6e9a19576e8bc32c048d2981",
+    "src/attachment.py": "32716b366b47b0f15469ec1e74a38e1909b271217ce0acd1712321ee7ae88a4b",
+    "src/batch_overview.py": "4ff0db6b633aa5947d61a9559bdb6dfc91bc9b0142a47b5237cc41f7f298eade",
+    "src/geometry.py": "05e586a52ac66b4b998f9240c08bf1b2976529e8052f8467cfbf4b47c79c0985",
+    "src/io_utils.py": "8449216f3f3c51a952958a9e5b77d555a5c208214ee5d98db6a7156b6318d708",
+    "src/leaf.py": "87620d898db34230bbdcd1d87799379c4005f08418e9588a545be866369a9ea6",
+    "src/pipeline.py": "6baf98630dfc8dbc9ba10c7d5bca7c801ca3acef135de3959d2b4c4d67be86eb",
+    "src/plots.py": "9527579bd378114919257f06659cb8e1fe895e8ede60977359dd4fb772e36f4b",
+    "src/report.py": "f0501fbc66bd2cae458cd9f73add51ea1342887935cb8c2a8c6084f342a09c91",
+    "src/robust_geometry.py": "fb8c80306f7d53e0baf3dbb105a78403ad60400938130911da6bacb6e18f03ec",
+    "src/stem.py": "6a6dcc52afd68d126123e5b7a50346e5480e9e267401d96c4bd03539fcd00420",
+    "src/tables.py": "eba12db940304eecde515a5986e50c5e55592e9dab263bd5b13effed4269dd88",
+    "src/visualization.py": "a0b1f90290780fa25705848384d3e78f148be1aaf0fb5117b250f2b73d7a43a5",
+    "run_analysis.py": "493f82ea9c22831f1bd2e1ec909454e12b00fce7e2e8243d7e0686b114f779be",
+    "view_pointcloud.py": "c834dee61dce396b882d2e64119d6a88ed36053995d1f4b8cd9ba04535db306d"
+  }
+}

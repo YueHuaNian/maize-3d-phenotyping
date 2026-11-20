@@ -1,0 +1,5 @@
+﻿plant_id,leaf_id,label_status,scope,height_ratio,attachment_arc_length,leaf_angle_deg,leaf_length,curvature_rms_norm,max_downward_displacement,droop_index,spread_index,envelope_obb_length,envelope_obb_width,envelope_obb_depth
+2-4-1,1,LEAF_INSTANCE,V4_FORMAL_GATES_UNCHANGED,nan,nan,nan,nan,nan,nan,nan,nan,0.32146469436794967,0.08459627899683242,0.06791176431874915
+2-4-1,2,LEAF_INSTANCE,V4_FORMAL_GATES_UNCHANGED,nan,nan,nan,nan,nan,nan,nan,nan,0.4809802126620938,0.13031728342144372,0.0942250245308249
+2-4-1,3,LEAF_INSTANCE,V4_FORMAL_GATES_UNCHANGED,nan,nan,nan,nan,nan,nan,nan,nan,0.31723081513902396,0.20671104141162494,0.08776845856913074
+2-4-1,4,LEAF_INSTANCE,V4_FORMAL_GATES_UNCHANGED,nan,nan,nan,nan,nan,nan,nan,nan,0.23994159069662999,0.14379744366912395,0.0644381206854637
