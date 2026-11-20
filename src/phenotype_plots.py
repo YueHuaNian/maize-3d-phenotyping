@@ -11,10 +11,9 @@ import numpy as np
 import plotly.graph_objects as go
 
 from .phenotype_features import FEATURES
+from .visualization import CLUSTER_COLORS as COLORS, UNASSIGNED_COLOR as UNASSIGNED
 
-COLORS = {"C1": "#237f8e", "C2": "#a95915", "C3": "#7553a6"}
 INK = "#233143"
-UNASSIGNED = "#657382"
 FIG_FORMAT = {"font.family": "DejaVu Sans", "pdf.fonttype": 42, "svg.fonttype": "none"}
 
 

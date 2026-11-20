@@ -1,6 +1,6 @@
 # Maize 3D Phenotyping
 
-V1.1 开发分支以 V1.0 全局最近邻叶基为起点，从玉米语义点云提取叶片可见几何特征、倾角 Shannon 熵和探索性形态簇。
+V1.1 以 V1.0 全局最近邻叶基为起点，从玉米语义点云提取叶片可见几何特征、倾角 Shannon 熵和探索性形态簇。
 
 [V1.1 数学与质量口径](docs/V1.1_METHODS.md) · [14 株分析报告](outputs/v1.1/V1.1_ANALYSIS_REPORT.md) · [V1.0 稳定发布](https://github.com/YueHuaNian/maize-3d-phenotyping/releases/tag/v1.0) · [V6 归档](archive/legacy-v6-baseline-2026-11-19/README.md)
 
@@ -42,3 +42,7 @@ python -m unittest discover -s tests -v
 - 单株分析输出叶片特征和空间核验，跨植株批次额外拟合聚类。V1.0 最近邻独立入口仍为 python -m src.nearest_attachment，V6 运行方式见历史归档。
 
 坐标的物理单位待确认。质量标记和独立解剖叶基验证范围见批次报告。
+
+## Python 交互查看器
+
+在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，点云按 C1、C2、C3 或未分簇着色，图例列出每片叶的原始叶号和簇编号。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。
