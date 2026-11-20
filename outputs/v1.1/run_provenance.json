@@ -1,0 +1,109 @@
+{
+  "run_at": "2026-11-20T18:26:16+08:00",
+  "version": "1.1.0-dev",
+  "git_head": "855568fc3c2a52639ad3cb55aaf6d2e8586bec57",
+  "python": "3.14.10",
+  "packages": {
+    "numpy": "2.5.5",
+    "scipy": "1.18.1",
+    "matplotlib": "3.11.2",
+    "scikit-learn": "1.9.1",
+    "plotly": "7.1.0",
+    "threadpoolctl": "3.8.0"
+  },
+  "point_row_origin": 0,
+  "coordinate_unit": "original input coordinate units; physical unit unconfirmed",
+  "sha256_text_source_lf": {
+    "VERSION": "dcfc86e8b2e38a3f90ceae6a117ebcb391a12cf7bb6d68955ae7f1b0ac21b6a6",
+    "requirements.txt": "005b0d6ddda571ab72a79131f8a711525aec3f4b443073e09dedadd440d4ce4f",
+    "run_analysis.py": "f2ac43dcdc5c8ab306d5bf5ef3e69581331f9771a3f4d55738b8fb3d043b69d5",
+    "src/geometry.py": "396ec94c9ca7c1d58b1fee320ef9ea94d449d8cf0c919da73bbf82122fd25be0",
+    "src/robust_geometry.py": "fadb6e9d9eac0eea4025b726798be79736585275140a8ba39a3aa6d1a88a0aa2",
+    "src/leaf.py": "a3d57b0c27b9a620f63683ba4e98821dab4f14a66a6f9779ddbe4a0ea79929fd",
+    "src/stem.py": "5e9cbac242fcc38aa4fb8ddd948d5923be55393a09560558dd671eb1aebae306",
+    "src/io_utils.py": "8995daac5bf3aec0aa00418b8767770499ac5172a23b9e93b56a7b545c191861",
+    "src/nearest_attachment.py": "f764fab183e6c88d2c5bd23c9c3bcbd21f6c0305d3df77de45bafb0a4a343e63",
+    "src/tables.py": "5bba4c0fbb4ab5d4692b12c76f13925ef9783d9e5d87e336c040837acc93415f",
+    "src/phenotype_features.py": "97bffda25e7d96e55f62e7a19ff83b14110e6dc8bee203f18853021ee6fde387",
+    "src/phenotype_clusters.py": "21f81d31483cd654e858e1620f8845b11669c4fdea127e66a23d20284baaaf69",
+    "src/phenotype_plots.py": "782f086cefe4d5d5945bc19fc1e4548318fc7fec867e3f5da1e2fa6c162f0798",
+    "src/phenotype_report.py": "8707a5084af4c4a452c2dccc16486ec9de0a48230d2e8e5e042efae741042472",
+    "src/phenotype_pipeline.py": "28c12ced63fec1ef9cf8c52773c512615d4cd54aa71ae3b833ca03a73b853d7d"
+  },
+  "stem_and_leaf_parameters": {
+    "seed": 20261119,
+    "stem_bins": 26,
+    "stem_bin_candidates": [
+      18,
+      26,
+      34
+    ],
+    "stem_lambda_candidates": [
+      0.0,
+      1e-06,
+      0.0001,
+      0.01,
+      1.0
+    ],
+    "stem_gate_span_fraction": 0.015,
+    "graph_neighbors": 10,
+    "graph_gap_factor": 6.0,
+    "graph_nodes_max": 2200,
+    "leaf_sections": 36,
+    "smoothing_rel": 0.004,
+    "base_fraction": 0.12,
+    "min_fit_points": 200,
+    "order_tolerance": 0.04
+  },
+  "geodesic_variants": [
+    [
+      10,
+      6.0
+    ],
+    [
+      8,
+      4.0
+    ],
+    [
+      12,
+      8.0
+    ]
+  ],
+  "quality_rules": {
+    "min_leaf_points": 200,
+    "min_retained_fraction": 0.94,
+    "min_curve_support": 0.9,
+    "min_arc_occupancy": 0.85,
+    "min_supported_variants": 2,
+    "max_relative_length_range": 0.2,
+    "max_relative_curvature_range": 0.6,
+    "max_variant_angle_deg": 20,
+    "max_window_angle_deg": 15,
+    "anchor_gap_length_fraction": 0.12,
+    "anchor_gap_spacing_factor": 4,
+    "endpoint_separation_spacing_factor": 2,
+    "pair_gap_spacing_factor": 4,
+    "pair_gap_stem_radius_factor": 3
+  },
+  "inclination_entropy_bin_edges_deg": [
+    0.0,
+    10.0,
+    20.0,
+    30.0,
+    40.0,
+    50.0,
+    60.0,
+    70.0,
+    80.0,
+    90.0,
+    100.0,
+    110.0,
+    120.0,
+    130.0,
+    140.0,
+    150.0,
+    160.0,
+    170.0,
+    180.0
+  ]
+}
