@@ -1,0 +1,27 @@
+{
+  "plants": 14,
+  "validated_pairs": 14,
+  "csv_files_seen": 14,
+  "txt_files_seen": 14,
+  "point_rows": 325818,
+  "invalid_xyz_rows": 0,
+  "leaves": 90,
+  "successful": 90,
+  "failed_leaves": 0,
+  "failed_plant_records": 0,
+  "distance_unit": "original coordinate units (unconfirmed physical unit)",
+  "distance_summary": {
+    "min": 0.0006901598064942108,
+    "q1": 0.0029929695220769236,
+    "median": 0.005012531862448947,
+    "q3": 0.0089554288895065,
+    "max": 0.18115589661728196,
+    "mean": 0.01358279856450651,
+    "sample_sd": 0.02609208104811246
+  },
+  "outlier_fences": {
+    "lower": -0.005950719529067441,
+    "upper": 0.017899117940650862
+  },
+  "outliers": 14
+}
