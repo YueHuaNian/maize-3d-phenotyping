@@ -3,6 +3,9 @@ from pathlib import Path
 import numpy as np
 from .io_utils import COLORS
 
+CLUSTER_COLORS = {"C1": "#237f8e", "C2": "#a95915", "C3": "#7553a6"}
+UNASSIGNED_COLOR = "#657382"
+
 
 def configure() -> None:
     import matplotlib.pyplot as plt
