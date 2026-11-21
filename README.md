@@ -52,3 +52,11 @@ python -m unittest discover -s tests -v
 ## Python 交互查看器
 
 在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，图例列出每片叶的原始叶号和簇编号。逐株熵形态模式用蓝色 C1 聚拢型、橙色 C2 伸展型、绿色 C3 耷拉型，并在点云上标注同色叶号。右侧选择 All 或单个类别查看，也可用 --cluster-scope batch 查看整批模型。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。
+
+### V2 高度优先查看器
+
+在 VS Code 打开并运行 [view_phenotypes_v2.py](view_phenotypes_v2.py)，即可查看上层聚拢型（蓝）、中层伸展型（橙）和下层耷拉型（绿）。V2 沿用逐株查看和单类筛选，默认读取本机 V1.1 的核验结果并即时计算分层。
+
+每株按最近茎点 Z 高度排序，单独标准化，以加权簇内平方和最小选择两个切点。平方距离权重为叶基高度 65%、观测方向 Shannon 熵 20%、水平伸展、末端落差及下行段占比各 5%。切点放在不同高度之间，同高叶片保留在一组。上、中、下按叶基高度定义，叶片末端可跨越分层边界。
+
+[14 株 V2 分层报告](outputs/v2/HEIGHT_ORDERED_REPORT.md) · [逐叶高度与类型](outputs/v2/leaf_layers.csv)
