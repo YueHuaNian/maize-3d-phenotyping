@@ -16,6 +16,8 @@
 
 V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态聚类和 V2 使用基于原始叶点剖面的观测方向熵。两种估计的计算口径和质量规则见方法文档。
 
+综合评价随 `run_analysis.py` 输出。逐株 PAI 综合横向伸展及叶基高度分布，逐叶 LMI 综合观测方向熵、伸展及下垂。两个指数保留原始分量、状态和计算溯源。[公式与质量规则](docs/PAI_LMI_METHODS.md)
+
 ## 已验证的数据与结果
 
 发布批次有 **14 株、325,818 个点、90 片叶**。14 对 TXT 和 CSV 全部通过逐行核验，90 片叶均获得最近点对。
@@ -70,6 +72,8 @@ python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-di
 ~~~
 
 单株分析用于检查输入、最近点对、叶片特征和逐株聚类。整批六特征模型及逐株留出评估在跨株批次中拟合。V2 读取 V1.1 批次的叶基和观测剖面结果，导出时无需打开交互窗口。
+
+单株和整批分析都会生成 `indices/`。用 `plant_indices.csv` 查看 PAI、逐株 LMI 中位数及覆盖率，用 `leaf_indices.csv` 查看逐叶 LMI 与各分量，并用 `PAI_LMI_REPORT.md` 汇总样本结果。
 
 V1.1 的 CSV 目录也可通过 MAIZE_DATA_DIR 或项目根目录的 .maize-data-dir 指定，后者只写一行本机目录。TXT 目录可通过 MAIZE_TXT_DIR 指定。显式路径参数便于迁移和复现，V1.0 独立命令要求提供两种目录。
 
