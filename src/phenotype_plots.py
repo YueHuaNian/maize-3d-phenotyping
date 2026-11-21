@@ -11,7 +11,9 @@ import numpy as np
 import plotly.graph_objects as go
 
 from .phenotype_features import FEATURES
-from .visualization import CLUSTER_COLORS as COLORS, UNASSIGNED_COLOR as UNASSIGNED
+from .visualization import CLUSTER_COLORS as COLORS
+from .visualization import PLANT_CLUSTER_COLORS as PLANT_COLORS
+from .visualization import UNASSIGNED_COLOR as UNASSIGNED
 
 INK = "#233143"
 FIG_FORMAT = {"font.family": "DejaVu Sans", "pdf.fonttype": 42, "svg.fonttype": "none"}
@@ -108,54 +110,101 @@ def _cluster_3d(leaves, model):
 def _plant_3d(leaves, geometry, plant_clusters=None):
     fig = go.Figure()
     grouped = {}
-    scope = "Within-plant K=3" if plant_clusters is not None else "Batch clusters"
+    trace_classes = {}
+    plant_classes = {}
+    within = plant_clusters is not None
+    scope = "Within-plant K=3" if within else "Batch clusters"
+    colors = PLANT_COLORS if within else COLORS
     for plant, data in geometry.items():
         start = len(fig.data)
         if data["stem"] is not None:
             vertices = data["stem"]
             fig.add_scatter3d(x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2],
                               mode="lines", name="Stem centreline", line=dict(color=INK, width=6))
-        for row in (r for r in leaves if r["plant_id"] == plant):
+        rows = [r for r in leaves if r["plant_id"] == plant]
+        if within:
+            members = {}
+            for row in rows:
+                cluster = plant_clusters[(plant, row["leaf_id"])] or "Unassigned"
+                members.setdefault(cluster, []).append(str(row["leaf_id"]))
+            plant_classes[plant] = [code for code in (*colors, "Unassigned") if code in members]
+        seen = set()
+        for row in rows:
             leaf_id = row["leaf_id"]
             line = data["leaves"].get(leaf_id)
-            cluster_id = (row["cluster_id"] if plant_clusters is None
-                          else plant_clusters[(plant, leaf_id)])
-            cluster = cluster_id or "unassigned"
+            cluster_id = plant_clusters[(plant, leaf_id)] if within else row["cluster_id"]
+            cluster = cluster_id or "Unassigned"
             title = f"Leaf {leaf_id} · {cluster}"
-            color = COLORS.get(cluster, UNASSIGNED)
-            label_group = f"{plant}/{leaf_id}"
+            color = colors.get(cluster, UNASSIGNED)
+            label_group = f"{plant}/{cluster if within else leaf_id}"
+            show_legend = label_group not in seen
+            legend_name = f"{cluster} · Leaf IDs: {', '.join(members[cluster])}" if within else title
+            legend_rank = {"C1": 1, "C2": 2, "C3": 3}.get(cluster, 4) if within else 1000
+            first_trace = len(fig.data)
+            endpoint = None
             if line is not None:
+                endpoint = line[-1]
                 fig.add_scatter3d(x=line[:, 0], y=line[:, 1], z=line[:, 2], mode="lines",
-                                  name=title, legendgroup=label_group,
-                                  line=dict(color=color, width=5), hoverinfo="name")
+                                  name=legend_name, legendgroup=label_group, legendrank=legend_rank,
+                                  showlegend=show_legend, line=dict(color=color, width=8 if within else 5),
+                                  hovertext=title, hoverinfo="text")
             if row["status"] == "ok":
-                coordinates = [[row[f"{tip}_{axis}"] for axis in "xyz"] for tip in ("leaf", "stem")]
-                p, q = coordinates
+                p, q = [[row[f"{tip}_{axis}"] for axis in "xyz"] for tip in ("leaf", "stem")]
+                if endpoint is None:
+                    endpoint = p
                 fig.add_scatter3d(x=[p[0], q[0]], y=[p[1], q[1]], z=[p[2], q[2]],
-                                  mode="lines+markers", name=f"{title} nearest pair",
-                                  legendgroup=label_group, showlegend=line is None,
+                                  mode="lines+markers", name=legend_name if within else f"{title} nearest pair",
+                                  legendgroup=label_group, legendrank=legend_rank,
+                                  showlegend=show_legend and line is None,
                                   text=["Leaf endpoint", "Stem endpoint"],
-                                  marker=dict(color=[color if plant_clusters is not None else "#b12635",
-                                                     "#e8a423"], size=4),
-                                  line=dict(color="#b12635", width=2),
+                                  marker=dict(color=[color, INK] if within else ["#b12635", "#e8a423"],
+                                              size=6 if within else 4),
+                                  line=dict(color="#69717c" if within else "#b12635", width=2),
                                   hovertemplate=("%{text}<br>x=%{x:.5g}<br>y=%{y:.5g}<br>z=%{z:.5g}"
                                                  f"<extra>{title}</extra>"))
+            if within and endpoint is not None:
+                fig.add_scatter3d(x=[endpoint[0]], y=[endpoint[1]], z=[endpoint[2]], mode="markers+text",
+                                  name=title, legendgroup=label_group, showlegend=False,
+                                  marker=dict(color=color, size=4), text=[str(leaf_id)],
+                                  textposition="top center", textfont=dict(color=color, size=13),
+                                  hovertemplate=f"{title}<extra></extra>")
+            if len(fig.data) > first_trace:
+                seen.add(label_group)
+                for index in range(first_trace, len(fig.data)):
+                    trace_classes[index] = cluster
         grouped[plant] = range(start, len(fig.data))
 
+    def plant_view(plant, code="All classes"):
+        indices = grouped[plant]
+        visible = [i in indices and (code == "All classes" or trace_classes.get(i) in (None, code))
+                   for i in range(len(fig.data))]
+        return [{"visible": visible}, {"title.text": f"Plant {plant} · {scope} · {code}" if within
+                                       else f"Plant {plant} · {scope}"}]
+
+    def class_buttons(plant):
+        return [dict(label=code, method="update", args=plant_view(plant, code))
+                for code in ("All classes", *plant_classes[plant])]
+
     options = []
-    for plant, indices in grouped.items():
-        options.append({"label": plant, "method": "update",
-                        "args": [{"visible": [i in indices for i in range(len(fig.data))]},
-                                 {"title.text": f"Plant {plant} · {scope}"}]})
+    for plant in grouped:
+        args = plant_view(plant)
+        if within:
+            args[1].update({"updatemenus[1].buttons": class_buttons(plant), "updatemenus[1].active": 0})
+        options.append(dict(label=plant, method="update", args=args))
     title = f"V1.1 · {scope}"
+    menus = []
     if options:
         title = options[0]["args"][1]["title.text"]
         for trace, visible in zip(fig.data, options[0]["args"][0]["visible"]):
             trace.visible = visible
+        menus.append(dict(buttons=options, x=0.02, y=0.99))
+        if within:
+            menus.append(dict(buttons=class_buttons(next(iter(grouped))), x=0.18, y=0.99))
     fig.update_layout(title=title, template="plotly_white",
                       scene=dict(aspectmode="data", xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
-                      updatemenus=[dict(buttons=options, x=0.02, y=0.99)] if options else [],
-                      margin=dict(t=70, b=10, l=10, r=10), legend=dict(groupclick="togglegroup"))
+                      updatemenus=menus, margin=dict(t=70, b=10, l=10, r=10),
+                      legend=dict(groupclick="togglegroup",
+                                  title_text="Leaf classes" if within else ""))
     return fig
 
 

@@ -4,6 +4,7 @@ import numpy as np
 from .io_utils import COLORS
 
 CLUSTER_COLORS = {"C1": "#237f8e", "C2": "#a95915", "C3": "#7553a6"}
+PLANT_CLUSTER_COLORS = {"C1": "#0059c8", "C2": "#c85600", "C3": "#007f56"}
 UNASSIGNED_COLOR = "#657382"
 
 

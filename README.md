@@ -44,11 +44,11 @@ python -m unittest discover -s tests -v
 - leaf_features.csv 保存每片叶最近点对、源点行号、各项特征、质量状态及簇 ID。plant_summary.csv 和 feature_summary.csv 分别汇总逐株与总体特征。
 - cluster_model.json、cluster_centers.csv、cluster_stability.csv 保存模型配置、质心、评价指标和逐株留出结果。
 - input_manifest.csv、quality_details.json、run_provenance.json 保存输入哈希、质量诊断、软件依赖和计算参数。
-- [二维聚类图](outputs/v1.1/cluster_2d.png)和[特征分布图](outputs/v1.1/feature_distributions.png)可直接查看。每次运行还在本机的 interactive/ 目录生成 cluster_3d.html（可旋转的 PCA 聚类图）和 plant_geometry_3d.html（整批模型的逐株几何图）。plant_clusters_3d.html 按逐株模型给叶片着色。
+- [二维聚类图](outputs/v1.1/cluster_2d.png)和[特征分布图](outputs/v1.1/feature_distributions.png)可直接查看。每次运行还在本机的 interactive/ 目录生成 cluster_3d.html（可旋转的 PCA 聚类图）和 plant_geometry_3d.html（整批模型的逐株几何图）。plant_clusters_3d.html 按逐株模型给叶片着色，并提供单类筛选。
 - 单株分析输出叶片特征和空间核验，跨植株批次额外拟合聚类。V1.0 最近邻独立入口仍为 python -m src.nearest_attachment，V6 运行方式见历史归档。
 
 坐标的物理单位待确认。质量标记和独立解剖叶基验证范围见批次报告。
 
 ## Python 交互查看器
 
-在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，图例列出每片叶的原始叶号和簇编号。默认显示逐株三分类，同时可用 --cluster-scope batch 查看整批模型。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。
+在 VS Code 打开 [view_phenotypes.py](view_phenotypes.py)，选择项目的 `.venv` Python 解释器后运行该文件，即可打开 Matplotlib 窗口。左侧选择植株，图例列出每片叶的原始叶号和簇编号。逐株模式用蓝色 C1、橙色 C2、绿色 C3，并在点云上标注同色叶号。右侧选择 All 或单个类别查看，也可用 --cluster-scope batch 查看整批模型。窗口叠加最近点对，默认读取本机配置的数据目录及 `outputs/v1.1` 的批次结果。无本机数据配置时，脚本接受与分析入口相同的数据目录参数。
