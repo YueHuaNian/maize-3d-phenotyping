@@ -11,14 +11,15 @@ from view_phenotypes import make_viewer, read_results
 ROOT = Path(__file__).resolve().parent
 
 
-def prepare_view(source):
+def prepare_view(source, middle_size="majority"):
     inputs, leaves, _ = read_results(source, "plant")
-    rows, summaries = classify_results(source, leaves)
+    rows, summaries = classify_results(source, leaves, middle_size=middle_size)
     for row in rows:
         code = row["plant_cluster_id"] or ""
         name = f"{row['height_layer']}{row['morphotype']}" if code in LAYERS else ""
         leaves[row["plant_id"]][row["leaf_id"]].update(cluster_id=code, morphotype=name)
-    return (inputs, leaves, SCOPE), rows, summaries
+    policy = "middle majority" if middle_size == "majority" else "free middle size"
+    return (inputs, leaves, f"{SCOPE} · {policy}"), rows, summaries
 
 
 def main():
@@ -28,6 +29,8 @@ def main():
     parser.add_argument("--data-dir", type=Path, help="semantic CSV directory")
     parser.add_argument("--txt-dir", type=Path, help="matching original TXT directory")
     parser.add_argument("--export-dir", type=Path, help="new directory for V2 tables and report")
+    parser.add_argument("--middle-size", choices=("majority", "free"), default="majority",
+                        help="require a middle-layer majority where feasible (default), or use free cuts")
     display = parser.add_mutually_exclusive_group()
     display.add_argument("--export-only", action="store_true", help="write results without opening the viewer")
     display.add_argument("--save", type=Path, help="save a static preview without opening a window")
@@ -37,9 +40,10 @@ def main():
     args.results_dir = args.results_dir.resolve()
 
     try:
-        prepared, rows, summaries = prepare_view(args.results_dir)
+        prepared, rows, summaries = prepare_view(args.results_dir, args.middle_size)
         if args.export_dir is not None:
-            export_results(args.export_dir, args.results_dir, rows, summaries)
+            export_results(args.export_dir, args.results_dir, rows, summaries,
+                           middle_size=args.middle_size)
         ok = sum(row["status"] == "ok" for row in summaries)
         assigned = sum(row["assigned_leaves"] for row in summaries)
         print(f"V2: {ok}/{len(summaries)} plants and {assigned}/{len(rows)} leaves classified", flush=True)
