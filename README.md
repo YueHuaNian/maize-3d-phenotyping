@@ -112,6 +112,10 @@ python -m unittest discover -s tests -v
 
 前两个查看器默认使用 outputs/v1.1 和本机数据配置，也可通过 --results-dir、--data-dir、--txt-dir 指向复算结果和输入。左侧切换植株，右侧可单独显示一类。C1 蓝、C2 橙、C3 绿，叶号与点云同色。
 
+V2 查看器切换植株时，右下角显示该株的 **PAI**。左键单击点云中的叶片或同色叶号，可查看该叶的 **LMI**，包括方向熵 E、水平伸展 R、下垂 D 及原始 Shannon 熵（bit）。叶号边框会加粗，隐藏该类或切换植株会清空叶片读数。
+
+默认读取发布批次的 PAI/LMI。查看自己复算的结果时，V2 自动读取 `--results-dir` 下的 `indices/`，也可通过 `--indices-dir` 指定与当前分析匹配的指标目录。旧结果没有指标表时，界面仍可查看点云和分类。
+
 运行 V1.1 后生成的 interactive/ 包含 plant_morphotypes_3d.html（逐株熵形态）、plant_geometry_3d.html（整批模型的逐株几何）和 cluster_3d.html（整批 PCA）。可在浏览器中离线查看，HTML 与配套的 plotly.min.js 需放在同一目录。
 
 ## 输出与代码位置

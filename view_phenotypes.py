@@ -83,7 +83,7 @@ def _source_bytes(directory, record, kind):
     return payload
 
 
-def draw_plant(ax, plant, xyz, labels, leaves, scope):
+def draw_plant(ax, plant, xyz, labels, leaves, scope, *, legend_below=False):
     from matplotlib.lines import Line2D
 
     visible = np.isfinite(xyz).all(axis=1) & (labels >= 0)
@@ -105,6 +105,7 @@ def draw_plant(ax, plant, xyz, labels, leaves, scope):
     pair_count = 0
     artists = defaultdict(list)
     leaf_ids = defaultdict(list)
+    targets = {}
     for leaf, row in sorted(leaves.items()):
         name = row["cluster_id"] or "Unassigned"
         color = colors.get(name, UNASSIGNED_COLOR)
@@ -139,15 +140,18 @@ def draw_plant(ax, plant, xyz, labels, leaves, scope):
                                     zorder=7, depthshade=False, linewidths=1.4))
             pair_count += 1
 
+        label_artist = None
         if within and len(points):
             position = np.median(points, axis=0)
             if base is not None:
                 distances = np.linalg.norm(points - base, axis=1)
                 position = np.median(points[distances >= np.quantile(distances, 0.9)], axis=0)
-            group.append(ax.text(*position, str(leaf), zorder=8, ha="center", va="center",
-                                 fontsize=9, fontweight="bold", color=color,
-                                 bbox=dict(boxstyle="round,pad=0.18", facecolor="white",
-                                           edgecolor=color, linewidth=0.8, alpha=0.94)))
+            label_artist = ax.text(*position, str(leaf), zorder=8, ha="center", va="center",
+                                   fontsize=9, fontweight="bold", color=color,
+                                   bbox=dict(boxstyle="round,pad=0.18", facecolor="white",
+                                             edgecolor=color, linewidth=0.8, alpha=0.94))
+            group.append(label_artist)
+        targets[leaf] = (points_artist, label_artist)
 
     if pair_count:
         handles.extend([
@@ -160,14 +164,34 @@ def draw_plant(ax, plant, xyz, labels, leaves, scope):
     setup_3d(ax, xyz[visible])
     cluster_count = sum(name in colors for name in leaf_ids)
     ax.set_title(f"{plant}  |  {len(leaves)} leaves  |  {cluster_count} clusters\n{scope}", loc="left")
-    ax.legend(handles=handles, loc="upper left",
-              bbox_to_anchor=((1.05, 0.37) if within else (1.01, 1.0)),
-              frameon=False, fontsize=8, markerscale=1.5)
+    legend = (dict(loc="upper center", bbox_to_anchor=(0.5, -0.015), ncols=2) if legend_below
+              else dict(loc="upper left", bbox_to_anchor=(1.05, 0.37) if within else (1.01, 1.0)))
+    ax.legend(handles=handles, frameon=False, fontsize=8, markerscale=1.5, **legend)
     ax.grid(alpha=0.3)
-    return artists, leaf_ids
+    return artists, leaf_ids, targets
 
 
-def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *, prepared_results=None):
+def _pick_leaf(targets, x, y, tolerance):
+    """Prefer drawn leaf labels, then the closest visible projected point."""
+    visible = [(leaf, points, label) for leaf, (points, label) in reversed(targets.items())
+               if points.get_visible()]
+    for leaf, _, label in visible:
+        if label is not None and label.get_bbox_patch().get_window_extent().contains(x, y):
+            return leaf
+
+    best, nearest = tolerance ** 2, None
+    for leaf, points, _ in visible:
+        offsets = np.ma.filled(points.get_offsets(), np.nan)
+        pixels = points.get_offset_transform().transform(offsets)
+        distances = np.sum((pixels - (x, y)) ** 2, axis=1)
+        distance = distances[np.isfinite(distances)].min(initial=np.inf)
+        if distance < best:
+            best, nearest = distance, leaf
+    return nearest
+
+
+def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
+                prepared_results=None, index_results=None):
     import matplotlib.pyplot as plt
     from matplotlib.widgets import RadioButtons
 
@@ -179,11 +203,13 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
     within = scope.startswith("Within-plant")
     morphotypes = {row["cluster_id"]: row["morphotype"] for group in leaves.values()
                    for row in group.values() if row.get("morphotype")}
-    if morphotypes:
+    show_indices = index_results is not None
+    if morphotypes or show_indices:
         configure()
     initial = sample or max(plants, key=lambda p: len({r["cluster_id"] for r in leaves[p].values()} - {""}))
-    fig = plt.figure(figsize=(12.8, 8.1))
-    ax = fig.add_axes((0.17, 0.10, 0.60 if within else 0.63, 0.82),
+    fig = plt.figure(figsize=(14.8, 8.3) if show_indices else (12.8, 8.1))
+    cloud_rect = (0.145, 0.13, 0.61, 0.79) if show_indices else (0.17, 0.10, 0.60 if within else 0.63, 0.82)
+    ax = fig.add_axes(cloud_rect,
                       projection="3d", computed_zorder=False)
     list_ax = fig.add_axes((0.025, 0.22, 0.13, 0.60))
     list_ax.set_title("Plant", loc="left", fontsize=10)
@@ -193,7 +219,8 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
     if within:
         if any(not r["cluster_id"] for rows in leaves.values() for r in rows.values()):
             codes.append("Unassigned")
-        class_ax = fig.add_axes((0.80, 0.48, 0.175, 0.37))
+        class_rect = (0.777, 0.51, 0.207, 0.37) if show_indices else (0.80, 0.48, 0.175, 0.37)
+        class_ax = fig.add_axes(class_rect)
         class_ax.set_title("Show leaf class", loc="left", fontsize=11, fontweight="bold")
         class_selector = RadioButtons(class_ax, codes, activecolor="#303846")
         for code, label in zip(codes, class_selector.labels):
@@ -202,9 +229,50 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
             label.set_fontsize(9)
     rendered = False
     artists = {}
+    targets = {}
     active_class = "All"
+    current_plant = None
+    selected_leaf = None
+    pressed_at = None
     hint = "Left-drag to rotate. Right-drag to zoom. XYZ use original coordinate units."
+    index_panel = None
+    if show_indices:
+        from src.viewer_indices import IndexPanel
+
+        index_panel = IndexPanel(fig, index_results)
+        hint = "Click a leaf or leaf number for LMI. Left-drag to rotate. Right-drag to zoom."
     status = fig.text(0.17, 0.039, hint, fontsize=9, color="#475767")
+
+    def select_leaf(leaf=None):
+        nonlocal selected_leaf
+        for leaf_id, width in ((selected_leaf, 0.8), (leaf, 2.0)):
+            if leaf_id is not None and targets[leaf_id][1] is not None:
+                targets[leaf_id][1].get_bbox_patch().set_linewidth(width)
+        selected_leaf = leaf
+        cluster = leaves[current_plant][leaf]["cluster_id"] if leaf is not None else ""
+        index_panel.show_leaf(current_plant, leaf, cluster)
+
+    def press(event):
+        nonlocal pressed_at
+        pressed_at = ((event.x, event.y) if event.inaxes is ax and event.button == 1
+                      and ax.get_navigate_mode() is None else None)
+
+    def release(event):
+        nonlocal pressed_at
+        start = pressed_at
+        pressed_at = None
+        if start is None or event.inaxes is not ax or event.button != 1:
+            return
+        tolerance = 5 * fig.dpi / 72
+        if (event.x - start[0]) ** 2 + (event.y - start[1]) ** 2 <= tolerance ** 2:
+            leaf = _pick_leaf(targets, event.x, event.y, tolerance)
+            if leaf is not None:
+                select_leaf(leaf)
+                fig.canvas.draw_idle()
+
+    if index_panel is not None:
+        fig.canvas.mpl_connect("button_press_event", press)
+        fig.canvas.mpl_connect("button_release_event", release)
 
     def set_class(label):
         nonlocal active_class
@@ -212,21 +280,28 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
         for name, group in artists.items():
             for artist in group:
                 artist.set_visible(active_class == "All" or name == active_class)
+        if selected_leaf is not None and not targets[selected_leaf][0].get_visible():
+            select_leaf()
         fig.canvas.draw_idle()
 
     if class_selector is not None:
         class_selector.on_clicked(set_class)
 
     def show(plant):
-        nonlocal rendered, artists
+        nonlocal rendered, artists, targets, current_plant, selected_leaf
         source = inputs[plant]
         xyz, labels = load_pair(_source_bytes(csv_dir, source, "csv"),
                                 _source_bytes(txt_dir, source, "txt"))
         camera = (ax.elev, ax.azim)
-        artists, members = draw_plant(ax, plant, xyz, labels, leaves[plant], scope)
+        artists, members, targets = draw_plant(ax, plant, xyz, labels, leaves[plant], scope,
+                                               legend_below=show_indices)
         if rendered:
             ax.view_init(elev=camera[0], azim=camera[1])
         rendered = True
+        current_plant, selected_leaf = plant, None
+        if index_panel is not None:
+            index_panel.show_plant(plant)
+            index_panel.show_leaf(plant)
         status.set_text(hint)
         if class_selector is not None:
             class_selector.labels[0].set_text(f"All classes · {len(leaves[plant])} leaves")
@@ -240,12 +315,16 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *,
         fig.canvas.draw_idle()
 
     def select(plant):
-        nonlocal artists
+        nonlocal artists, targets, current_plant, selected_leaf
         try:
             show(plant)
         except (ValueError, OSError) as exc:
             ax.clear()
-            artists = {}
+            artists, targets = {}, {}
+            current_plant, selected_leaf = None, None
+            if index_panel is not None:
+                index_panel.show_plant(None)
+                index_panel.show_leaf(None)
             status.set_text(str(exc))
             fig.canvas.draw_idle()
 
