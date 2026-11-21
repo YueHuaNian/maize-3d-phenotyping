@@ -14,7 +14,7 @@
     "plant_morphotypes/plant_summary.csv": "dfe03e56f59b99f720e04bc2962ad1daf488d1706d9603a77c3455d8a5bbb75e"
   },
   "code_sha256_lf": {
-    "entropy_layers.py": "4438e31797114afc468ede3e3c0a84fc2c6865cd5fa34337ffd360acfab90ece",
+    "entropy_layers.py": "6c343fbe58139f8b0ab0f7ac2e90c3933bac94be097d47097fbbcf9d27345a0c",
     "plant_morphotypes_v2.py": "cedc1f5110be1dc655ebb2616e2c11406ddcd3f4e4dedae7e94a2c13c02912e8"
   },
   "warning": "Target descriptions are hypotheses, not verified morphology labels."
