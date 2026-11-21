@@ -1,0 +1,32 @@
+{
+  "git_head": "d0880897f495b2bcf794be022b4b1d610bab9477",
+  "method": "minimum weighted SSE with contiguous attachment height bands",
+  "k": 3,
+  "squared_distance_weights": {
+    "attachment_height_ratio": 0.65,
+    "observed_shannon_entropy_bits": 0.2,
+    "horizontal_reach_q95_ratio": 0.05,
+    "distal_drop_ratio": 0.05,
+    "downward_path_fraction": 0.05
+  },
+  "class_order_bottom_to_top": [
+    "C3",
+    "C2",
+    "C1"
+  ],
+  "morphotypes": {
+    "C1": "聚拢型",
+    "C2": "伸展型",
+    "C3": "耷拉型"
+  },
+  "middle_size": "majority",
+  "numpy": "2.5.5",
+  "scikit-learn": "1.9.1",
+  "v1_1_input_sha256": {
+    "input_manifest.csv": "c5a132c971061a2a9a01307ad44703caebf18f417160fbff95e1b32d5dc72a16",
+    "leaf_features.csv": "cb0ca49e6b15d0ffe4e51476886535fb2fe3c247db3da09eb0ebec875ee1f6ae",
+    "plant_morphotypes/leaf_clusters.csv": "fbd0f5855e3edb6b4de3c5775ac60ab59b6be5dbfe393fe15bc149627f3d0b3d",
+    "plant_morphotypes/plant_summary.csv": "53504cce957681743ff62abdea192f819f22d26e88af577f2cba847954f9ac12",
+    "plant_morphotypes/provenance.json": "257224ae430cd7626fb59e4ee50260dba2e73f3b59926424a5edb94716f37523"
+  }
+}
