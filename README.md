@@ -44,6 +44,8 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 
 夹角质量排查：`python -m src.angle_diagnostics --results-dir outputs/v1.1 --output-dir results/angle-diagnostics`。该报告保留质量状态、各门槛和未通过筛查的诊断值，不改变正式夹角；早期失败会跳过部分后续检查。
 
+近端点云 PCA 探索：`python -m src.proximal_angle_experiment --results-dir outputs/v1.1 --data-dir path/to/csv --output-dir results/proximal-experiment`。程序核对原始 CSV 与已有结果的哈希，比较近端窗口方向和已接受夹角；实验值不会写入正式特征。窗口、筛选参数及其局限见结果报告。
+
 发布批次有 **14 株、325,818 个点、90 片叶**。14 对 TXT 和 CSV 全部通过逐行核验，90 片叶均获得最近点对。
 
 - V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。
