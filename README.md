@@ -16,6 +16,8 @@
 
 V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态聚类和 V2 使用基于原始叶点剖面的观测方向熵。两种估计的计算口径和质量规则见方法文档。
 
+综合评价随 `run_analysis.py` 输出。逐株 PAI 综合横向伸展及叶基高度分布，逐叶 LMI 综合观测方向熵、伸展及下垂。两个指数保留原始分量、状态和计算溯源。[公式与质量规则](docs/PAI_LMI_METHODS.md)
+
 ## 已验证的数据与结果
 
 发布批次有 **14 株、325,818 个点、90 片叶**。14 对 TXT 和 CSV 全部通过逐行核验，90 片叶均获得最近点对。
@@ -23,6 +25,7 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 - V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。
 - V1.1 逐株熵模型覆盖全部 90 片叶，观测方向熵中位数为 2.826 bit。聚拢型 25 片、伸展型 33 片、耷拉型 32 片。
 - V2 的中层多数方案覆盖 14 株、90 片叶。上层 19 片、中层 56 片、下层 15 片。13 株中层超过半数。2-4-1 共有 4 片叶，保留三层时中层最多 2 片。中层多数是分层的预设条件。[逐株统计](outputs/v2-middle-majority/plant_summary.csv) · [逐叶分组与高度](outputs/v2-middle-majority/leaf_layers.csv)
+- PAI 覆盖 14/14 株，中位数 30.61。LMI 覆盖 90/90 片叶，逐叶中位数 36.49。[综合评价报告](outputs/pai-lmi-baseline/PAI_LMI_REPORT.md)
 
 原始坐标的物理单位待确认。最近点对是叶基的初始几何估计。遮挡、贴茎叶段和语义边界可能影响定位。形态簇与高度分层描述本批次的观测几何，跨批次解释与解剖叶基误差仍需独立数据验证。
 
@@ -71,6 +74,8 @@ python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-di
 
 单株分析用于检查输入、最近点对、叶片特征和逐株聚类。整批六特征模型及逐株留出评估在跨株批次中拟合。V2 读取 V1.1 批次的叶基和观测剖面结果，导出时无需打开交互窗口。
 
+单株和整批分析都会生成 `indices/`。用 `plant_indices.csv` 查看 PAI、逐株 LMI 中位数及覆盖率，用 `leaf_indices.csv` 查看逐叶 LMI 与各分量，并用 `PAI_LMI_REPORT.md` 汇总样本结果。
+
 V1.1 的 CSV 目录也可通过 MAIZE_DATA_DIR 或项目根目录的 .maize-data-dir 指定，后者只写一行本机目录。TXT 目录可通过 MAIZE_TXT_DIR 指定。显式路径参数便于迁移和复现，V1.0 独立命令要求提供两种目录。
 
 ### 3. 检查结果和运行测试
@@ -104,6 +109,7 @@ python -m unittest discover -s tests -v
 | [outputs/v1.1/plant_morphotypes/](outputs/v1.1/plant_morphotypes/) | 逐叶熵形态分组、特征、簇中心和逐株计数 |
 | [outputs/v2-middle-majority/](outputs/v2-middle-majority/) | 默认 V2 的 14 株复算报告、逐叶分层、逐株统计和运行溯源 |
 | [outputs/v2/](outputs/v2/) | 原版自由切分的逐叶高度分层、逐株切点、复算参数和来源哈希 |
+| [outputs/pai-lmi-baseline/](outputs/pai-lmi-baseline/) | 14 株的 PAI 与 LMI 复算报告、逐株和逐叶指标、分量、质量状态及运行溯源 |
 | [run_analysis.py](run_analysis.py)、[src/](src/)、[tests/](tests/) | V1.1 分析入口、实现与测试 |
 
 ## 开发分支

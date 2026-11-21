@@ -15,6 +15,7 @@ from threadpoolctl import threadpool_limits
 from .nearest_attachment import InputError, load_pair
 from .phenotype_clusters import cluster_leaves
 from .phenotype_features import ENTROPY_EDGES, PARAMS, RULES, VARIANTS, analyse_plant
+from .phenotype_indices import write_indices
 from .phenotype_plots import write_figures
 from .phenotype_report import write_outputs
 from .plant_clustering import cluster_plant, plant_cluster_summary, write_plant_clusters
@@ -25,7 +26,7 @@ SOURCES = [
     "VERSION", "requirements.txt", "run_analysis.py", "src/geometry.py", "src/robust_geometry.py",
     "src/leaf.py", "src/stem.py", "src/io_utils.py", "src/nearest_attachment.py", "src/tables.py",
     "src/plant_clustering.py", "src/visualization.py",
-    *[f"src/phenotype_{name}.py" for name in ("features", "clusters", "plots", "report", "pipeline")],
+    *[f"src/phenotype_{name}.py" for name in ("features", "clusters", "indices", "plots", "report", "pipeline")],
 ]
 
 
@@ -118,6 +119,7 @@ def run_analysis(csv_dir: Path, txt_dir: Path, output: Path, sample: str | None 
         write_outputs(staged, leaves, manifest, quality, provenance, model, centers, folds)
         write_plant_clusters(staged, plant_cluster_rows, plant_cluster_summaries,
                              plant_cluster_centers, manifest, provenance)
+        write_indices(staged, manifest, leaves, plant_cluster_rows, plant_cluster_summaries, provenance)
         write_figures(staged, leaves, model, geometry, plant_cluster_rows)
         staged.rename(output)
     ok_count = sum(r["input_status"] == "ok" for r in manifest)
