@@ -25,6 +25,7 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 - V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。
 - V1.1 逐株熵模型覆盖全部 90 片叶，观测方向熵中位数为 2.826 bit。聚拢型 25 片、伸展型 33 片、耷拉型 32 片。
 - V2 的中层多数方案覆盖 14 株、90 片叶。上层 19 片、中层 56 片、下层 15 片。13 株中层超过半数。2-4-1 共有 4 片叶，保留三层时中层最多 2 片。中层多数是分层的预设条件。[逐株统计](outputs/v2-middle-majority/plant_summary.csv) · [逐叶分组与高度](outputs/v2-middle-majority/leaf_layers.csv)
+- PAI 覆盖 14/14 株，中位数 30.61。LMI 覆盖 90/90 片叶，逐叶中位数 36.49。[综合评价报告](outputs/pai-lmi-baseline/PAI_LMI_REPORT.md)
 
 原始坐标的物理单位待确认。最近点对是叶基的初始几何估计。遮挡、贴茎叶段和语义边界可能影响定位。形态簇与高度分层描述本批次的观测几何，跨批次解释与解剖叶基误差仍需独立数据验证。
 
@@ -108,6 +109,7 @@ python -m unittest discover -s tests -v
 | [outputs/v1.1/plant_morphotypes/](outputs/v1.1/plant_morphotypes/) | 逐叶熵形态分组、特征、簇中心和逐株计数 |
 | [outputs/v2-middle-majority/](outputs/v2-middle-majority/) | 默认 V2 的 14 株复算报告、逐叶分层、逐株统计和运行溯源 |
 | [outputs/v2/](outputs/v2/) | 原版自由切分的逐叶高度分层、逐株切点、复算参数和来源哈希 |
+| [outputs/pai-lmi-baseline/](outputs/pai-lmi-baseline/) | 14 株的 PAI 与 LMI 复算报告、逐株和逐叶指标、分量、质量状态及运行溯源 |
 | [run_analysis.py](run_analysis.py)、[src/](src/)、[tests/](tests/) | V1.1 分析入口、实现与测试 |
 
 ## 开发分支
