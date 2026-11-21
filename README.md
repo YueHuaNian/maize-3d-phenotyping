@@ -12,7 +12,7 @@
 | **V1.1 表型提取** | 根据最近点对、稳健茎线和可见叶中线测量叶茎夹角、归一化着生高度、下垂指数、归一化 RMS 曲率、水平延展指数和倾角 Shannon 熵。逐项通过质量筛查后写入主结果字段。 [数学定义和质量规则](docs/V1.1_METHODS.md) |
 | **V1.1 整批聚类** | 只用六项特征齐全的叶片拟合 StandardScaler 和 K-means（K=3），以逐株留出评估本批次的复算稳定性。 [分析报告](outputs/v1.1/V1.1_ANALYSIS_REPORT.md) · [逐株留出结果](outputs/v1.1/cluster_stability.csv) |
 | **V1.1 逐株熵形态聚类** | 从原始叶点构建统一的观测剖面，每株独立拟合 K=3。Shannon 熵占平方距离权重的 55%，水平伸展、末端落差和下行段占比各占 15%。组名为 C1 聚拢型、C2 伸展型、C3 耷拉型。 [逐株报告](outputs/v1.1/plant_morphotypes/PLANT_CLUSTER_REPORT.md) · [逐叶分组与熵](outputs/v1.1/plant_morphotypes/leaf_clusters.csv) |
-| **V2 高度优先分层** | 按最近茎点的 Z 高度排序，以加权簇内平方和最小选择两个切点。叶基高度权重为 65%，观测方向 Shannon 熵为 20%，其余三项各为 5%。按叶基划为上层 C1 聚拢型、中层 C2 伸展型、下层 C3 耷拉型。同高叶片在同一层。 [分层结果](outputs/v2/HEIGHT_ORDERED_REPORT.md) · [逐叶高度与标签](outputs/v2/leaf_layers.csv) |
+| **V2 高度优先分层** | 按最近茎点的 Z 高度连续划分上层 C1 聚拢型、中层 C2 伸展型、下层 C3 耷拉型。各株以加权簇内平方和最小选择两个切点。叶基高度权重 65%，观测方向 Shannon 熵 20%，水平伸展、末端落差和下行段占比各 5%。同高叶片在同一层。默认要求中层超过半数。若叶片数或同高叶片使多数不可达，则保留三层并最大化中层叶片数。 [默认分层报告](outputs/v2-middle-majority/HEIGHT_ORDERED_REPORT.md) · [原版自由切分](outputs/v2/HEIGHT_ORDERED_REPORT.md) |
 
 V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态聚类和 V2 使用基于原始叶点剖面的观测方向熵。两种估计的计算口径和质量规则见方法文档。
 
@@ -22,7 +22,7 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 
 - V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。
 - V1.1 逐株熵模型覆盖全部 90 片叶，观测方向熵中位数为 2.826 bit。聚拢型 25 片、伸展型 33 片、耷拉型 32 片。
-- V2 高度分层覆盖全部 90 片叶。逐株计数、两个高度切点和结果来源见 [V2 报告](outputs/v2/HEIGHT_ORDERED_REPORT.md)。
+- V2 的中层多数方案覆盖 14 株、90 片叶。上层 19 片、中层 56 片、下层 15 片。13 株中层超过半数。2-4-1 共有 4 片叶，保留三层时中层最多 2 片。中层多数是分层的预设条件。[逐株统计](outputs/v2-middle-majority/plant_summary.csv) · [逐叶分组与高度](outputs/v2-middle-majority/leaf_layers.csv)
 
 原始坐标的物理单位待确认。最近点对是叶基的初始几何估计。遮挡、贴茎叶段和语义边界可能影响定位。形态簇与高度分层描述本批次的观测几何，跨批次解释与解剖叶基误差仍需独立数据验证。
 
@@ -64,7 +64,9 @@ python run_analysis.py --sample 2-1-2 --data-dir "path/to/csv" --txt-dir "path/t
 
 python run_analysis.py --batch --data-dir "path/to/csv" --txt-dir "path/to/txt" --output-dir results/reproduction/v1.1
 
-python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-dir results/reproduction/v2 --export-only
+python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-dir results/reproduction/v2-majority --export-only
+
+python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-dir results/reproduction/v2-original --middle-size free --export-only
 ~~~
 
 单株分析用于检查输入、最近点对、叶片特征和逐株聚类。整批六特征模型及逐株留出评估在跨株批次中拟合。V2 读取 V1.1 批次的叶基和观测剖面结果，导出时无需打开交互窗口。
@@ -86,7 +88,7 @@ python -m unittest discover -s tests -v
 | 入口 | 用途 |
 |---|---|
 | [view_phenotypes.py](view_phenotypes.py) | V1.1 点云和最近点对。默认显示逐株熵聚类，有批次结果时也可通过 --cluster-scope batch 查看整批模型 |
-| [view_phenotypes_v2.py](view_phenotypes_v2.py) | V2 高度优先方案，根据 V1.1 结果计算每株的上、中、下层 |
+| [view_phenotypes_v2.py](view_phenotypes_v2.py) | V2 高度优先方案。默认启用中层多数规则，可通过 --middle-size free 查看原版自由切分 |
 | [view_pointcloud.py](view_pointcloud.py) | 历史 V6 查看器，用于原始点云及旧版几何叠加 |
 
 前两个查看器默认使用 outputs/v1.1 和本机数据配置，也可通过 --results-dir、--data-dir、--txt-dir 指向复算结果和输入。左侧切换植株，右侧可单独显示一类。C1 蓝、C2 橙、C3 绿，叶号与点云同色。
@@ -100,5 +102,10 @@ python -m unittest discover -s tests -v
 | [outputs/v1.0/](outputs/v1.0/) | 最近点对、距离统计、14 株三维图和实验报告 |
 | [outputs/v1.1/](outputs/v1.1/) | 逐叶特征、逐株统计、输入与运行溯源、质量明细、整批模型及留出结果 |
 | [outputs/v1.1/plant_morphotypes/](outputs/v1.1/plant_morphotypes/) | 逐叶熵形态分组、特征、簇中心和逐株计数 |
-| [outputs/v2/](outputs/v2/) | 逐叶高度分层、逐株切点、复算参数和来源哈希 |
+| [outputs/v2-middle-majority/](outputs/v2-middle-majority/) | 默认 V2 的 14 株复算报告、逐叶分层、逐株统计和运行溯源 |
+| [outputs/v2/](outputs/v2/) | 原版自由切分的逐叶高度分层、逐株切点、复算参数和来源哈希 |
 | [run_analysis.py](run_analysis.py)、[src/](src/)、[tests/](tests/) | V1.1 分析入口、实现与测试 |
+
+## 开发分支
+
+日常开发、提交和测试在 `dev` 进行。`main` 用于发布，经项目维护者明确要求后才合并 `dev`。

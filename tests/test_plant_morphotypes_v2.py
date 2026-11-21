@@ -21,6 +21,8 @@ class HeightOrderedMorphotypeTests(unittest.TestCase):
         rows, summary = cluster_plant("P", leaves, features, 0, 10)
         self.assertEqual(summary["status"], "ok")
         self.assertEqual(summary["assigned_leaves"], len(leaves))
+        self.assertTrue(summary["middle_majority_met"])
+        self.assertGreater(summary["middle_share"], 0.5)
         self.assertEqual({r["plant_cluster_id"] for r in rows}, set(BOTTOM_TO_TOP))
         ranges = [[r["nearest_stem_z"] for r in rows if r["plant_cluster_id"] == code]
                   for code in BOTTOM_TO_TOP]
@@ -54,14 +56,27 @@ class HeightOrderedMorphotypeTests(unittest.TestCase):
         self.assertEqual(WEIGHTS[0], 0.65)
         self.assertAlmostEqual(WEIGHTS.sum(), 1)
         transformed = StandardScaler().fit_transform(matrix) * np.sqrt(WEIGHTS)
-        objective, a, b = _height_partition(matrix)
         scores = []
         for p, q in itertools.combinations(np.where(np.diff(heights) > 0)[0] + 1, 2):
             parts = np.split(transformed, (p, q))
             scores.append((sum(((group - group.mean(axis=0)) ** 2).sum() for group in parts), p, q))
-        expected = min(scores)
-        self.assertEqual((a, b), expected[1:])
-        self.assertAlmostEqual(objective, expected[0])
+        for policy, candidates in (("free", scores),
+                                   ("majority", [s for s in scores if s[2] - s[1] > len(heights) / 2])):
+            with self.subTest(policy=policy):
+                objective, a, b = _height_partition(matrix, policy)
+                expected = min(candidates)
+                self.assertEqual((a, b), expected[1:])
+                self.assertAlmostEqual(objective, expected[0])
+
+    def test_middle_is_maximized_when_a_majority_is_infeasible(self):
+        for heights, expected_middle in (([1, 2, 3, 4], 2), ([1, 1, 2, 3, 4, 4], 2)):
+            with self.subTest(heights=heights):
+                leaves, features = inputs(heights)
+                _, summary = cluster_plant("P", leaves, features, 0, 10)
+                self.assertEqual(summary["status"], "ok")
+                self.assertEqual(summary["assigned_leaves"], len(heights))
+                self.assertEqual(summary["C2"], expected_middle)
+                self.assertFalse(summary["middle_majority_met"])
 
 
 if __name__ == "__main__":
