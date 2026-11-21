@@ -93,10 +93,10 @@ class ClusterTests(unittest.TestCase):
         self.assertGreater(model["metrics"]["silhouette"], 0.9)
 
     def test_scaler_and_model_receive_training_rows_only_in_each_fold(self):
-        from src.phenotype_clusters import _fit
+        from src.phenotype_clusters import fit_standardized_kmeans
 
         rows = cohort()
-        with patch("src.phenotype_clusters._fit", wraps=_fit) as spy:
+        with patch("src.phenotype_clusters.fit_standardized_kmeans", wraps=fit_standardized_kmeans) as spy:
             cluster_leaves(rows, ["P0", "P1", "P2", "P3"])
         feature = list(FEATURES)[0]
         for index in range(4):
