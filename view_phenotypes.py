@@ -167,11 +167,12 @@ def draw_plant(ax, plant, xyz, labels, leaves, scope):
     return artists, leaf_ids
 
 
-def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto"):
+def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto", *, prepared_results=None):
     import matplotlib.pyplot as plt
     from matplotlib.widgets import RadioButtons
 
-    inputs, leaves, scope = read_results(results, cluster_scope)
+    inputs, leaves, scope = (read_results(results, cluster_scope)
+                             if prepared_results is None else prepared_results)
     plants = sorted(leaves)
     if sample is not None and sample not in plants:
         raise ValueError(f"Plant {sample!r} is missing from the V1.1 results")
