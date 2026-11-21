@@ -42,6 +42,8 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 
 `comparisons.csv` 按株比较层间的夹角、水平伸展、下行段占比和末端落差中位数。每项保留有效叶数、覆盖情况、相等和缺测状态；结果是相对次序描述，并非植株好坏判断。比较依赖同一组用于分层的形态特征，不是独立验证。
 
+14 株的聚类分层可视化见 [逐株图片](outputs/layer-figures/) 和 [分层总览](outputs/layer-figures/分层总览.jpg)。红、橙、蓝分别表示上、中、下层，灰色为茎；颜色读取既有分层结果，不表示形态已经达标。
+
 夹角质量排查：`python -m src.angle_diagnostics --results-dir outputs/v1.1 --output-dir results/angle-diagnostics`。该报告保留质量状态、各门槛和未通过筛查的诊断值，不改变正式夹角；早期失败会跳过部分后续检查。
 
 近端点云 PCA 探索：`python -m src.proximal_angle_experiment --results-dir outputs/v1.1 --data-dir path/to/csv --output-dir results/proximal-experiment`。程序核对原始 CSV 与已有结果的哈希，比较近端窗口方向和已接受夹角；实验值不会写入正式特征。窗口、筛选参数及其局限见结果报告。
