@@ -2,19 +2,39 @@
 
 从带语义标签的玉米三维点云定位茎叶最近点对，测量可见叶片的几何特征，并按形态或叶基高度做逐株分类。结果保留原始植株编号、叶号、点数据行号、输入哈希和质量状态，可以从报告追溯到原始点云。
 
-[PAI 与 LMI](#pai-与-lmi) · [复现步骤](#从原始点云复现) · [交互查看器](#交互查看器) · [V1.0 发布](https://github.com/YueHuaNian/maize-3d-phenotyping/releases/tag/v1.0) · [V6 历史归档](archive/legacy-v6-baseline-2026-11-19/README.md)
+[分析流程](#分析流程) · [PAI 与 LMI](#pai-与-lmi) · [不足与误差](#不足与误差) · [复现步骤](#从原始点云复现) · [交互查看器](#交互查看器) · [V1.0 发布](https://github.com/YueHuaNian/maize-3d-phenotyping/releases/tag/v1.0) · [V6 历史归档](archive/legacy-v6-baseline-2026-11-19/README.md)
 
-## 项目能做什么
+## 分析流程
 
-| 分析 | 方法与输出 |
+分析从已有器官标签的玉米点云开始。同株同名 TXT 与 CSV 应使用相同坐标和点顺序。流程先核对输入并定位茎叶最近点对，再分别计算通过质量筛查的拟合特征和基于原始叶点的观测剖面特征。
+
+~~~mermaid
+flowchart TD
+    Input["逐株 TXT 和语义 CSV"] --> Check["逐行核验并记录哈希"]
+    Check --> Pair["V1.0 茎叶最近点对"]
+    Pair --> Fit["V1.1 茎线与叶中线拟合"]
+    Pair --> Profile["V1.1 观测叶点剖面"]
+    Fit --> Batch["六特征整批聚类与逐株留出"]
+    Fit --> Angle["夹角质量排查与近端对照"]
+    Profile --> Shape["逐株熵形态聚类"]
+    Profile --> Layer["V2 叶基高度分层"]
+    Profile --> Index["逐株 PAI 与逐叶 LMI"]
+    Layer --> Compare["层间形态对照"]
+    Fit --> Compare
+    Layer --> Viewer["V2 查看器"]
+    Index --> Viewer
+~~~
+
+| 步骤 | 输入、计算和产物 |
 |---|---|
-| **V1.0 叶基定位** | 对每株的有效茎点建 cKDTree，查找每片叶全部有效点到茎的全局欧氏最短点对。输出最近点、距离、源行号和逐株三维图。 [算法](docs/ALGORITHM.md) · [实验报告](outputs/v1.0/V1.0_EXPERIMENT_REPORT.md) |
-| **V1.1 表型提取** | 根据最近点对、稳健茎线和可见叶中线测量叶茎夹角、归一化着生高度、下垂指数、归一化 RMS 曲率、水平延展指数和倾角 Shannon 熵。逐项通过质量筛查后写入主结果字段。 [数学定义和质量规则](docs/V1.1_METHODS.md) |
-| **V1.1 整批聚类** | 只用六项特征齐全的叶片拟合 StandardScaler 和 K-means（K=3），以逐株留出评估本批次的复算稳定性。 [分析报告](outputs/v1.1/V1.1_ANALYSIS_REPORT.md) · [逐株留出结果](outputs/v1.1/cluster_stability.csv) |
-| **V1.1 逐株熵形态聚类** | 从原始叶点构建统一的观测剖面，每株独立拟合 K=3。Shannon 熵占平方距离权重的 55%，水平伸展、末端落差和下行段占比各占 15%。组名为 C1 聚拢型、C2 伸展型、C3 耷拉型。 [逐株报告](outputs/v1.1/plant_morphotypes/PLANT_CLUSTER_REPORT.md) · [逐叶分组与熵](outputs/v1.1/plant_morphotypes/leaf_clusters.csv) |
-| **V2 高度优先分层** | 按最近茎点的 Z 高度连续划分上层 C1 聚拢型、中层 C2 伸展型、下层 C3 耷拉型。各株以加权簇内平方和最小选择两个切点。叶基高度权重 65%，观测方向 Shannon 熵 20%，水平伸展、末端落差和下行段占比各 5%。同高叶片在同一层。默认要求中层超过半数。若叶片数或同高叶片使多数不可达，则保留三层并最大化中层叶片数。 [默认分层报告](outputs/v2-middle-majority/HEIGHT_ORDERED_REPORT.md) · [原版自由切分](outputs/v2/HEIGHT_ORDERED_REPORT.md) |
+| **1. 输入核验** | 按植株 ID 配对，逐行核对点数、XYZ 和标签。核验失败的植株记录在输入清单。保留原始文件名和 SHA-256，含非有限坐标的点不参与几何计算。[输入清单](outputs/v1.1/input_manifest.csv) |
+| **2. V1.0 叶基估计** | 为有效茎点建立 cKDTree。对每片叶，在全部有效叶点和茎点中搜索欧氏距离最小的点对。两点的坐标、距离及原始行号写入逐叶表。V1.1 从原始点云调用同一定位逻辑，可独立运行 V1.0 生成核验报告。[算法](docs/ALGORITHM.md) · [逐叶最近点对](outputs/v1.0/nearest_attachment_results.csv) |
+| **3. V1.1 拟合特征与整批聚类** | 拟合稳健茎线和可见叶中线，按各自质量规则计算夹角、着生高度、下垂、曲率、水平延展及拟合中线倾角熵。正式特征未通过筛查时留空。六项齐全的叶片进入 StandardScaler + K-means（K=3），按植株留出复算。另可用质量明细做夹角诊断和近端 PCA 对照。[逐叶特征](outputs/v1.1/leaf_features.csv) · [计算定义](docs/V1.1_METHODS.md) |
+| **4. V1.1 观测剖面与逐株聚类** | 从最近叶点出发，按离叶基的径向距离分段，连接各段有效叶点的坐标中位数，得到观测剖面。各株独立用 K-means（K=3）按相对形态分组。观测方向熵权重 55%，水平伸展、末端落差和下行段占比各 15%。[逐叶分组与熵](outputs/v1.1/plant_morphotypes/leaf_clusters.csv) |
+| **5. V2 高度优先分层** | 读取最近茎点的 Z 高度和观测剖面特征。株内标准化后，以加权簇内平方和最小选两个高度切点。高度权重 65%、观测熵 20%、其余三项各 5%。同高叶片留在同一层。默认要求中层超过半数，达不到时保留三层并使中层尽可能大。自由切分可用于层间形态对照。[默认方案](outputs/v2-middle-majority/HEIGHT_ORDERED_REPORT.md) · [自由切分对照](outputs/entropy-layers/REPORT.md) |
+| **6. PAI、LMI 与可视化** | `run_analysis.py` 同时以最近点对和观测剖面特征计算 PAI 与 LMI。V2 查看器将这两张指标表和分层结果按植株 ID 与原始叶号关联。导出的 CSV 保留各分量、质量状态和输入溯源。[指标报告](outputs/pai-lmi-baseline/PAI_LMI_REPORT.md) |
 
-V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态聚类和 V2 使用基于原始叶点剖面的观测方向熵。两种估计的计算口径和质量规则见方法文档。
+读表时要区分两套高度和熵。V1.1 整批模型将最近茎点投影到拟合茎线上，以累计弧长占比表示高度，熵来自可见中线相对茎主轴的倾角。V2 和 PAI 用最近茎点的 Z 坐标及茎点高度分位数，逐株形态聚类、V2 和 LMI 用观测剖面相对 +Z 的方向熵。整批模型的 C1/C2/C3 依簇中心高度由低到高编号。逐株形态模型的编号来自形态特征，V2 按高度从上到下编号。查看或比较分组时应先确认所用模式。[V1.1 方法](docs/V1.1_METHODS.md) · [V2 分层规则](outputs/v2-middle-majority/HEIGHT_ORDERED_REPORT.md)
 
 ## PAI 与 LMI
 
@@ -34,30 +54,31 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 
 ## 已验证的数据与结果
 
-### 基于熵的高度有序分层报告
-
-`python -m src.entropy_layers --results-dir outputs/v1.1 --output-dir results/entropy-layers`
-
-此入口复用 V2 的高度连续三组聚类，选取自由切分（不预设中层多数）。特征包括叶基高度、观测方向 Shannon 熵、水平伸展、末端落差和下行段占比；各株标准化后的平方距离权重分别为 65%、20%、5%、5%、5%。分层目标分别为上层直立、中层展开和下层下垂，但这些名称不是对实际形态是否达标的判断。输出逐叶特征、逐层中位数和角度有效数量；需进一步人工验证叶基、特征和各层形态。输入为 V1.1 的已计算结果，原始数据变更后应先重新运行批处理。示例结果见 `outputs/entropy-layers/REPORT.md`。
-
-`comparisons.csv` 按株比较层间的夹角、水平伸展、下行段占比和末端落差中位数。每项保留有效叶数、覆盖情况、相等和缺测状态；结果是相对次序描述，并非植株好坏判断。比较依赖同一组用于分层的形态特征，不是独立验证。
-
-14 株的聚类分层可视化见 [逐株图片](outputs/layer-figures/) 和 [分层总览](outputs/layer-figures/分层总览.jpg)。红、橙、蓝分别表示上、中、下层，灰色为茎；颜色读取既有分层结果，不表示形态已经达标。
-
-夹角质量排查：`python -m src.angle_diagnostics --results-dir outputs/v1.1 --output-dir results/angle-diagnostics`。该报告保留质量状态、各门槛和未通过筛查的诊断值，不改变正式夹角；早期失败会跳过部分后续检查。
-
-近端点云 PCA 探索：`python -m src.proximal_angle_experiment --results-dir outputs/v1.1 --data-dir path/to/csv --output-dir results/proximal-experiment`。程序核对原始 CSV 与已有结果的哈希，比较近端窗口方向和已接受夹角；实验值不会写入正式特征。窗口、筛选参数及其局限见结果报告。
-
 发布批次有 **14 株、325,818 个点、90 片叶**。14 对 TXT 和 CSV 全部通过逐行核验，90 片叶均获得最近点对。
 
-- V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。
-- V1.1 逐株熵模型覆盖全部 90 片叶，观测方向熵中位数为 2.826 bit。聚拢型 25 片、伸展型 33 片、耷拉型 32 片。
-- V2 的中层多数方案覆盖 14 株、90 片叶。上层 19 片、中层 56 片、下层 15 片。13 株中层超过半数。2-4-1 共有 4 片叶，保留三层时中层最多 2 片。中层多数是分层的预设条件。[逐株统计](outputs/v2-middle-majority/plant_summary.csv) · [逐叶分组与高度](outputs/v2-middle-majority/leaf_layers.csv)
-- PAI 覆盖 14/14 株，中位数 30.61。LMI 覆盖 90/90 片叶，逐叶中位数 36.49。[综合评价报告](outputs/pai-lmi-baseline/PAI_LMI_REPORT.md)
+- **V1.1 整批模型**纳入 33 片六特征完整的叶，轮廓系数 0.255。14 折逐株留出相对于整批参照模型的标签一致率按叶数加权为 84.85%，按株等权为 77.38%。[整批报告](outputs/v1.1/V1.1_ANALYSIS_REPORT.md) · [逐株留出](outputs/v1.1/cluster_stability.csv)
+- **V1.1 逐株熵模型**覆盖 90 片叶，观测方向熵中位数 2.826 bit。聚拢型 25 片、伸展型 33 片、耷拉型 32 片。[逐株形态报告](outputs/v1.1/plant_morphotypes/PLANT_CLUSTER_REPORT.md)
+- **V2 默认分层**上层 19 片、中层 56 片、下层 15 片，13 株中层超过半数。样本 `2-4-1` 共 4 片叶，在三层均非空时中层最多 2 片。**V2 自由切分**上层 28 片、中层 29 片、下层 33 片。[默认逐株统计](outputs/v2-middle-majority/plant_summary.csv) · [自由切分逐株统计](outputs/v2/plant_summary.csv)
+- **PAI** 覆盖 14/14 株，中位数 30.61，范围 25.35–51.93。**LMI** 覆盖 90/90 片叶，逐叶中位数 36.49，范围 17.62–60.22。[综合评价报告](outputs/pai-lmi-baseline/PAI_LMI_REPORT.md)
 
-原始坐标的物理单位待确认。最近点对是叶基的初始几何估计。遮挡、贴茎叶段和语义边界可能影响定位。形态簇与高度分层描述本批次的观测几何，跨批次解释与解剖叶基误差仍需独立数据验证。
+静态分层图采用自由切分结果，红、橙、蓝依次表示上、中、下层，灰色为茎。V2 交互查看器使用本页下方列出的配色。[14 株静态图](outputs/layer-figures/) · [分层总览](outputs/layer-figures/分层总览.jpg)
 
 ![V1.1 整批模型的二维 PCA 投影](outputs/v1.1/cluster_2d.png)
+
+## 不足与误差
+
+目前可量化的是**茎叶点间距、不同角度算法的读数差、特征覆盖率和同批次的分组稳定性**。解剖叶基位置和真实叶茎夹角缺少独立人工标注，本批次暂无这两项的绝对误差或均方根误差（RMSE）。植株是独立观测单位，汇总的叶片统计描述本批次的可见几何。
+
+| 环节 | 现有证据及适用范围 |
+|---|---|
+| **输入与方向** | TXT/CSV 逐行一致说明两份输入可配对。遮挡、漏扫、语义标注偏差和贴茎叶点会传到后续特征。坐标的物理单位待确认，距离保留原始坐标单位。V2、PAI 与 LMI 依赖输入的 +Z 竖直约定，其中 PAI/LMI 的部分分量相对同株茎点跨度归一化，茎点覆盖过短会改变这些比值。[输入核验与坐标口径](docs/ALGORITHM.md) · [指标归一化](docs/PAI_LMI_METHODS.md#输入与归一化) |
+| **最近点对与叶基估计** | 90 片叶均有最近点对。点间距中位数为 0.00501，范围为 0.000690–0.18116。14 片超过本批次按 `Q3 + 1.5 × IQR` 计算的上界 0.01790。这些数值衡量所选两点的间隔，可用于优先核查异常叶。即使间隔很小，贴茎叶段也可能被选为叶基。[距离统计](outputs/v1.0/distance_summary.json) · [异常叶清单](outputs/v1.0/distance_outliers.csv) |
+| **拟合特征覆盖率** | 在 90 片叶中，正式夹角有效 33 片，着生高度 61 片，归一化曲率 52 片，下垂、水平延展和拟合熵各 57 片。57 片夹角缺失中有 26 片涉及最近叶点与拟合中线起点距离超限。多个原因可重叠，早期阻断也可能使后续检查未执行。整批聚类的结论对应通过全部六项筛查的 33 片叶。[特征覆盖](outputs/v1.1/feature_summary.csv) · [夹角缺失诊断](outputs/angle-diagnostics/REPORT.md) |
+| **近端 PCA 角度差** | 与正式夹角可比较的 27 片叶，绝对差中位数 5.1°，第 90 百分位数 30.3°。两种估计共用最近叶点和茎线，数值反映两种方向估计的差异。26 片叶基与中线起点距离超限的叶中，14 片在三个窗口都可计算，0 片通过探索性筛选。相应正式字段继续留空。[近端对照报告](outputs/proximal-angle-experiment/REPORT.md) |
+| **观测剖面与分层** | 径向分段可能把回折或遮挡后的不同部位合到同一区间。熵衡量方向分散程度，判读下垂方向需同时看落差与下行段。自由切分中，14 株有 10 株中层水平伸展中位数大于上层，9 株下层下行段占比中位数大于中层，8 株下层末端落差中位数大于中层。上层夹角较小的只有 3 株有支持，且均为部分覆盖，另 11 株数据不足。V2 默认方案的中层多数来自预设约束。层间对照复用部分分层输入，跨批次表现仍需独立验证。[层间对照](outputs/entropy-layers/REPORT.md#层间形态对照) |
+| **整批聚类与综合指数** | 逐株留出的一致率衡量与整批模型的标签复算稳定性。整批参照模型含被留出的植株，实际类别准确率仍需独立标签。PAI/LMI 的权重尚未外部标定。指数适合描述观测到的几何特征，叶面积、产量和田间表现需另行测量。比较不同植株的 LMI 时，应同时看逐株中位数和有效叶覆盖率。[留出方法](docs/V1.1_METHODS.md#聚类与分组复算) · [指标适用范围](docs/PAI_LMI_METHODS.md#适用范围与复现) |
+
+核查单片叶时，先用 `plant_id` 和 `leaf_id` 在逐叶表定位，查看对应的 `*_status` 与质量明细。回看原始点时，`leaf_point_row` 和 `stem_point_row` 从第一条点数据的 0 开始计数。换算为文本行号时，CSV 加 2，TXT 加 3。诊断值与正式字段分开记录，正式字段留空时应同时查看失败阶段和缺失原因。[逐叶表](outputs/v1.1/leaf_features.csv) · [质量明细](outputs/v1.1/quality_details.json)
 
 ## 从原始点云复现
 
@@ -100,19 +121,31 @@ python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-di
 python view_phenotypes_v2.py --results-dir results/reproduction/v1.1 --export-dir results/reproduction/v2-original --middle-size free --export-only
 ~~~
 
-单株分析用于检查输入、最近点对、叶片特征和逐株聚类。整批六特征模型及逐株留出评估在跨株批次中拟合。V2 读取 V1.1 批次的叶基和观测剖面结果，导出时无需打开交互窗口。
+第一条命令独立生成 V1.0 最近点对报告。单株分析用于检查输入、最近点对、叶片特征和逐株聚类。批次分析用同样的原始点云重新计算最近点对，并生成整批模型和逐株留出结果。V2 的两个导出命令从本次批次目录读取叶基和观测剖面数据，可在没有图形窗口的环境中运行。
 
 单株和整批分析都会生成 `indices/`。用 `plant_indices.csv` 查看 PAI、逐株 LMI 中位数及覆盖率，用 `leaf_indices.csv` 查看逐叶 LMI 与各分量，并用 `PAI_LMI_REPORT.md` 汇总样本结果。
 
-V1.1 的 CSV 目录也可通过 MAIZE_DATA_DIR 或项目根目录的 .maize-data-dir 指定，后者只写一行本机目录。TXT 目录可通过 MAIZE_TXT_DIR 指定。显式路径参数便于迁移和复现，V1.0 独立命令要求提供两种目录。
+V1.1 的 CSV 目录也可通过 `MAIZE_DATA_DIR` 或项目根目录的 `.maize-data-dir` 指定，后者只写一行本机目录。TXT 目录可通过 `MAIZE_TXT_DIR` 指定。显式路径参数便于迁移和复现，V1.0 独立命令要求提供两种目录。
 
-### 3. 检查结果和运行测试
+### 3. 复现层间对照和夹角诊断
+
+这三条命令复用上一步的批次结果，分别生成自由切分的层间统计、正式夹角缺失诊断和近端 PCA 对照。最后一条还要读取同一批原始 CSV，并按输入哈希核对。诊断和对照产物各自保存在指定目录。
+
+~~~sh
+python -m src.entropy_layers --results-dir results/reproduction/v1.1 --output-dir results/reproduction/entropy-layers
+
+python -m src.angle_diagnostics --results-dir results/reproduction/v1.1 --output-dir results/reproduction/angle-diagnostics
+
+python -m src.proximal_angle_experiment --results-dir results/reproduction/v1.1 --data-dir "path/to/csv" --output-dir results/reproduction/proximal-angle-experiment
+~~~
+
+### 4. 检查结果和运行测试
 
 ~~~sh
 python -m unittest discover -s tests -v
 ~~~
 
-复现发布批次时，先比较 input_manifest.csv 的植株编号、点数和输入哈希，再对照各输出的行数、质量状态和分组。预期 V1.0 输出 90 个最近点对，V1.1 整批模型纳入 33 片完整特征叶，V1.1 逐株模型和 V2 均覆盖 14 株、90 片叶。真实样本测试会使用已配置的数据目录，其中配对测试沿用旧版约定，从 CSV 目录的同级 0709单天多个材料原始数据 查找 1-1-2.txt。
+复现发布批次时，先比较 `input_manifest.csv` 的植株编号、点数和输入哈希，再对照行数、质量状态及分组。预期 V1.0 输出 90 个最近点对，V1.1 整批模型纳入 33 片完整特征叶，V1.1 逐株模型和 V2 均覆盖 14 株、90 片叶，综合评价输出 14 个有效 PAI 和 90 个有效 LMI。真实样本测试会使用已配置的数据目录，其中配对测试沿用旧版约定，从 CSV 目录的同级 `0709单天多个材料原始数据` 查找 `1-1-2.txt`。
 
 ## 交互查看器
 
@@ -142,6 +175,8 @@ V2 查看器切换植株时，右下角显示该株的 **PAI**。左键单击点
 | [outputs/v2-middle-majority/](outputs/v2-middle-majority/) | 默认 V2 的 14 株复算报告、逐叶分层、逐株统计和运行溯源 |
 | [outputs/v2/](outputs/v2/) | 原版自由切分的逐叶高度分层、逐株切点、复算参数和来源哈希 |
 | [outputs/pai-lmi-baseline/](outputs/pai-lmi-baseline/) | 14 株的 PAI 与 LMI 复算报告、逐株和逐叶指标、分量、质量状态及运行溯源 |
+| [outputs/entropy-layers/](outputs/entropy-layers/) · [outputs/layer-figures/](outputs/layer-figures/) | 自由切分逐层特征、层间对照与静态分层图 |
+| [outputs/angle-diagnostics/](outputs/angle-diagnostics/) · [outputs/proximal-angle-experiment/](outputs/proximal-angle-experiment/) | 夹角缺失诊断、近端 PCA 候选读数及问题叶清单 |
 | [run_analysis.py](run_analysis.py)、[src/](src/)、[tests/](tests/) | V1.1 分析入口、实现与测试 |
 
 ## 开发分支
