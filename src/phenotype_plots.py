@@ -113,7 +113,9 @@ def _plant_3d(leaves, geometry, plant_clusters=None):
     trace_classes = {}
     plant_classes = {}
     within = plant_clusters is not None
-    scope = "Within-plant K=3" if within else "Batch clusters"
+    scope = "Within-plant morphology K=3" if within else "Batch clusters"
+    type_names = {code: morphotype for code, morphotype in plant_clusters.values()
+                  if morphotype} if within else {}
     colors = PLANT_COLORS if within else COLORS
     for plant, data in geometry.items():
         start = len(fig.data)
@@ -125,20 +127,21 @@ def _plant_3d(leaves, geometry, plant_clusters=None):
         if within:
             members = {}
             for row in rows:
-                cluster = plant_clusters[(plant, row["leaf_id"])] or "Unassigned"
+                cluster = plant_clusters[(plant, row["leaf_id"])][0] or "Unassigned"
                 members.setdefault(cluster, []).append(str(row["leaf_id"]))
             plant_classes[plant] = [code for code in (*colors, "Unassigned") if code in members]
         seen = set()
         for row in rows:
             leaf_id = row["leaf_id"]
             line = data["leaves"].get(leaf_id)
-            cluster_id = plant_clusters[(plant, leaf_id)] if within else row["cluster_id"]
+            cluster_id = plant_clusters[(plant, leaf_id)][0] if within else row["cluster_id"]
             cluster = cluster_id or "Unassigned"
-            title = f"Leaf {leaf_id} · {cluster}"
+            category = f"{cluster} {type_names[cluster]}" if cluster in type_names else cluster
+            title = f"Leaf {leaf_id} · {category}"
             color = colors.get(cluster, UNASSIGNED)
             label_group = f"{plant}/{cluster if within else leaf_id}"
             show_legend = label_group not in seen
-            legend_name = f"{cluster} · Leaf IDs: {', '.join(members[cluster])}" if within else title
+            legend_name = f"{category} · Leaf IDs: {', '.join(members[cluster])}" if within else title
             legend_rank = {"C1": 1, "C2": 2, "C3": 3}.get(cluster, 4) if within else 1000
             first_trace = len(fig.data)
             endpoint = None
@@ -182,7 +185,8 @@ def _plant_3d(leaves, geometry, plant_clusters=None):
                                        else f"Plant {plant} · {scope}"}]
 
     def class_buttons(plant):
-        return [dict(label=code, method="update", args=plant_view(plant, code))
+        return [dict(label=f"{code} {type_names[code]}" if code in type_names else code,
+                     method="update", args=plant_view(plant, code))
                 for code in ("All classes", *plant_classes[plant])]
 
     options = []
@@ -217,7 +221,8 @@ def write_figures(path: Path, leaves, model, geometry, plant_cluster_rows):
                                          div_id="maize-cluster-3d")
     _plant_3d(leaves, geometry).write_html(interactive / "plant_geometry_3d.html",
                                           include_plotlyjs="directory", div_id="maize-plant-3d")
-    labels = {(r["plant_id"], r["leaf_id"]): r["plant_cluster_id"] for r in plant_cluster_rows}
-    _plant_3d(leaves, geometry, labels).write_html(interactive / "plant_clusters_3d.html",
+    labels = {(r["plant_id"], r["leaf_id"]): (r["plant_cluster_id"], r["morphotype"])
+              for r in plant_cluster_rows}
+    _plant_3d(leaves, geometry, labels).write_html(interactive / "plant_morphotypes_3d.html",
                                                    include_plotlyjs="directory",
-                                                   div_id="maize-plant-clusters-3d")
+                                                   div_id="maize-plant-morphotypes-3d")

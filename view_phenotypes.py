@@ -13,7 +13,9 @@ import numpy as np
 
 from src.io_utils import locate_data
 from src.nearest_attachment import load_pair
-from src.visualization import CLUSTER_COLORS, PLANT_CLUSTER_COLORS, UNASSIGNED_COLOR, setup_3d
+from src.visualization import (
+    CLUSTER_COLORS, PLANT_CLUSTER_COLORS, UNASSIGNED_COLOR, configure, setup_3d,
+)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -34,6 +36,10 @@ def read_results(folder, cluster_scope="auto"):
             groups[plant][leaf] = row
     if not groups:
         raise ValueError("No validated plants with V1.1 leaf results")
+    morphology = folder / "plant_morphotypes" / "leaf_clusters.csv"
+    if cluster_scope != "batch" and morphology.is_file():
+        _read_plant_clusters(morphology, inputs, groups)
+        return inputs, groups, "Within-plant morphology K=3"
     within = folder / "plant_clusters" / "leaf_clusters.csv"
     if cluster_scope == "plant" or (cluster_scope == "auto" and within.is_file()):
         _read_plant_clusters(within, inputs, groups)
@@ -49,18 +55,22 @@ def _read_plant_clusters(path, inputs, groups):
             raise ValueError(f"{plant}: within-plant results belong to a different point cloud")
 
     labels = {}
+    morphotypes = provenance.get("morphotypes", {})
     with path.open(encoding="utf-8-sig", newline="") as stream:
         for row in csv.DictReader(stream):
             key = row["plant_id"], int(row["leaf_id"])
             cluster = row["plant_cluster_id"]
             if key in labels or (cluster and cluster not in CLUSTER_COLORS):
                 raise ValueError(f"Invalid within-plant cluster row for {key[0]} leaf {key[1]}")
-            labels[key] = cluster
+            morphotype = row.get("morphotype", "")
+            if morphotypes and morphotype != morphotypes.get(cluster, ""):
+                raise ValueError(f"Invalid morphotype for {key[0]} leaf {key[1]}")
+            labels[key] = (cluster, morphotype)
     expected = {(plant, leaf) for plant, rows in groups.items() for leaf in rows}
     if labels.keys() != expected:
         raise ValueError("Within-plant cluster rows differ from the V1.1 leaf table")
-    for (plant, leaf), cluster in labels.items():
-        groups[plant][leaf]["cluster_id"] = cluster
+    for (plant, leaf), (cluster, morphotype) in labels.items():
+        groups[plant][leaf].update(cluster_id=cluster, morphotype=morphotype)
 
 
 def _source_bytes(directory, record, kind):
@@ -82,7 +92,7 @@ def draw_plant(ax, plant, xyz, labels, leaves, scope):
     if set(labels[labels > 0]) != set(leaves):
         raise ValueError(f"{plant}: leaf IDs differ between results and point cloud")
 
-    within = scope == "Within-plant K=3"
+    within = scope.startswith("Within-plant")
     colors = PLANT_CLUSTER_COLORS if within else CLUSTER_COLORS
     stem_color = "#343a46" if within else "#28679f"
     pair_color = "#5f6572" if within else "#b12635"
@@ -165,7 +175,11 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto"):
     plants = sorted(leaves)
     if sample is not None and sample not in plants:
         raise ValueError(f"Plant {sample!r} is missing from the V1.1 results")
-    within = scope == "Within-plant K=3"
+    within = scope.startswith("Within-plant")
+    morphotypes = {row["cluster_id"]: row["morphotype"] for group in leaves.values()
+                   for row in group.values() if row.get("morphotype")}
+    if morphotypes:
+        configure()
     initial = sample or max(plants, key=lambda p: len({r["cluster_id"] for r in leaves[p].values()} - {""}))
     fig = plt.figure(figsize=(12.8, 8.1))
     ax = fig.add_axes((0.17, 0.10, 0.60 if within else 0.63, 0.82),
@@ -219,7 +233,8 @@ def make_viewer(results, csv_dir, txt_dir, sample=None, cluster_scope="auto"):
                 ids = members.get(code, [])
                 count = f"{len(ids)} {'leaf' if len(ids) == 1 else 'leaves'}"
                 numbers = ", ".join(map(str, ids)) or "—"
-                label.set_text(f"{code} · {count}\n{fill('Leaf IDs: ' + numbers, width=21)}")
+                category = f"{code} {morphotypes[code]}" if code in morphotypes else code
+                label.set_text(f"{category} · {count}\n{fill('Leaf IDs: ' + numbers, width=21)}")
             set_class(active_class)
         fig.canvas.draw_idle()
 

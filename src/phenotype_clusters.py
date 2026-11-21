@@ -21,9 +21,11 @@ def _sufficient(matrix):
     return len(matrix) > K and len(np.unique(matrix, axis=0)) >= K
 
 
-def fit_standardized_kmeans(matrix):
+def fit_standardized_kmeans(matrix, weights=None):
     scaler = StandardScaler()
     standardized = scaler.fit_transform(matrix)
+    if weights is not None:
+        standardized *= np.sqrt(weights)
     model = KMeans(n_clusters=K, n_init=N_INIT, random_state=SEED,
                    max_iter=300, tol=1e-4, algorithm="lloyd").fit(standardized)
     return scaler, standardized, model

@@ -9,16 +9,18 @@ import numpy as np
 from threadpoolctl import threadpool_limits
 
 from src.nearest_attachment import locate_attachments
-from src.plant_clustering import FIELDS, cluster_plant
+from src.phenotype_clusters import fit_standardized_kmeans
+from src.plant_clustering import FIELDS, FEATURE_WEIGHTS, MORPHOTYPES, _observed_profile_features, cluster_plant
 from view_phenotypes import read_results
 
 
 def sample(profiles):
     xyz = [[0., 0., float(z)] for z in range(11)]
     labels = [0] * len(xyz)
+    t = np.linspace(0, 1, 161)
     for leaf, height, x, y in profiles:
-        xyz.extend([[0.01, 0, height], [x, 0, height + y]])
-        labels.extend([leaf, leaf])
+        xyz.extend(np.column_stack((0.01 + x * t, np.zeros_like(t), height + y * t)))
+        labels.extend([leaf] * len(t))
     xyz, labels = np.asarray(xyz, float), np.asarray(labels)
     return xyz, labels, [asdict(r) for r in locate_attachments("P", xyz, labels)]
 
@@ -30,16 +32,35 @@ class PlantClusteringTests(unittest.TestCase):
 
     def test_three_nonempty_groups_with_all_leaf_ids(self):
         rows, summary, centers = self.classify([
-            (8, 2, .5, 0), (3, 2, .55, 0.02),
-            (12, 5, 1.2, .2), (1, 5, 1.25, .21),
-            (9, 8, 2, .4), (20, 8, 2.06, .39),
+            (8, 8, .40, .16), (3, 8, .41, .164),
+            (12, 2, 2.0, .10), (1, 2, 2.05, .1025),
+            (9, 5, 1.0, -.8), (20, 5, 1.02, -.816),
         ])
         self.assertEqual(summary["status"], "ok")
         self.assertEqual(summary["assigned_leaves"], 6)
         self.assertEqual([summary[c] for c in ("C1", "C2", "C3")], [2, 2, 2])
         by_leaf = {r["leaf_id"]: r["plant_cluster_id"] for r in rows}
         self.assertEqual(by_leaf, {3: "C1", 8: "C1", 1: "C2", 12: "C2", 9: "C3", 20: "C3"})
-        self.assertEqual([c[FIELDS[0]] for c in centers], sorted(c[FIELDS[0]] for c in centers))
+        self.assertEqual([c["morphotype"] for c in centers], list(MORPHOTYPES.values()))
+        self.assertLess(centers[0]["horizontal_reach_q95_ratio"], centers[1]["horizontal_reach_q95_ratio"])
+        self.assertGreater(centers[2]["downward_path_fraction"], centers[1]["downward_path_fraction"])
+        self.assertTrue(all(r["profile_sections"] >= 3 for r in rows))
+
+    def test_entropy_has_largest_squared_distance_weight(self):
+        matrix = np.arange(24.0).reshape(6, 4)
+        with threadpool_limits(limits=1):
+            scaler, weighted, _ = fit_standardized_kmeans(matrix, FEATURE_WEIGHTS)
+        np.testing.assert_allclose(weighted ** 2, scaler.transform(matrix) ** 2 * FEATURE_WEIGHTS)
+        self.assertEqual(FEATURE_WEIGHTS[0], 0.55)
+
+    def test_distal_drop_can_occur_above_leaf_base(self):
+        t = np.linspace(0, 1, 257)
+        profile = np.column_stack((2 * t, np.zeros_like(t), 0.4 * np.sin(2.6 * t)))
+        self.assertGreater(profile[-1, 2], 0)
+        measured = _observed_profile_features(profile)
+        self.assertGreater(measured["observed_shannon_entropy_bits"], 0)
+        self.assertGreater(measured["distal_drop_ratio"], 0)
+        self.assertGreater(measured["downward_path_fraction"], 0)
 
     def test_exactly_three_leaves_have_three_clusters_without_silhouette(self):
         _, summary, _ = self.classify([(1, 2, .5, 0), (5, 5, 1, .2), (9, 8, 2, .4)])
@@ -93,6 +114,17 @@ class ViewerScopeTests(unittest.TestCase):
                                   encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "different point cloud"):
                 read_results(root)
+
+            newest = root / "plant_morphotypes"
+            newest.mkdir()
+            (newest / "leaf_clusters.csv").write_text(
+                "plant_id,leaf_id,plant_cluster_id,morphotype\nP,7,C2,伸展型\n", encoding="utf-8")
+            (newest / "provenance.json").write_text(
+                json.dumps({"inputs": {"P": inputs}, "morphotypes": MORPHOTYPES}), encoding="utf-8")
+            _, morph, scope = read_results(root)
+            self.assertEqual((morph["P"][7]["morphotype"], scope),
+                             ("伸展型", "Within-plant morphology K=3"))
+            self.assertEqual(read_results(root, "batch")[1]["P"][7]["cluster_id"], "C1")
 
 
 if __name__ == "__main__":
