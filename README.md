@@ -34,6 +34,20 @@ V1.1 的拟合中线熵按中线方向计算，用于整批分析。逐株形态
 
 ## 已验证的数据与结果
 
+### 基于熵的高度有序分层报告
+
+`python -m src.entropy_layers --results-dir outputs/v1.1 --output-dir results/entropy-layers`
+
+此入口复用 V2 的高度连续三组聚类，选取自由切分（不预设中层多数）。特征包括叶基高度、观测方向 Shannon 熵、水平伸展、末端落差和下行段占比；各株标准化后的平方距离权重分别为 65%、20%、5%、5%、5%。分层目标分别为上层直立、中层展开和下层下垂，但这些名称不是对实际形态是否达标的判断。输出逐叶特征、逐层中位数和角度有效数量；需进一步人工验证叶基、特征和各层形态。输入为 V1.1 的已计算结果，原始数据变更后应先重新运行批处理。示例结果见 `outputs/entropy-layers/REPORT.md`。
+
+`comparisons.csv` 按株比较层间的夹角、水平伸展、下行段占比和末端落差中位数。每项保留有效叶数、覆盖情况、相等和缺测状态；结果是相对次序描述，并非植株好坏判断。比较依赖同一组用于分层的形态特征，不是独立验证。
+
+14 株的聚类分层可视化见 [逐株图片](outputs/layer-figures/) 和 [分层总览](outputs/layer-figures/分层总览.jpg)。红、橙、蓝分别表示上、中、下层，灰色为茎；颜色读取既有分层结果，不表示形态已经达标。
+
+夹角质量排查：`python -m src.angle_diagnostics --results-dir outputs/v1.1 --output-dir results/angle-diagnostics`。该报告保留质量状态、各门槛和未通过筛查的诊断值，不改变正式夹角；早期失败会跳过部分后续检查。
+
+近端点云 PCA 探索：`python -m src.proximal_angle_experiment --results-dir outputs/v1.1 --data-dir path/to/csv --output-dir results/proximal-experiment`。程序核对原始 CSV 与已有结果的哈希，比较近端窗口方向和已接受夹角；实验值不会写入正式特征。窗口、筛选参数及其局限见结果报告。
+
 发布批次有 **14 株、325,818 个点、90 片叶**。14 对 TXT 和 CSV 全部通过逐行核验，90 片叶均获得最近点对。
 
 - V1.1 整批模型纳入 33 片完整特征叶，轮廓系数为 0.255。逐株留出完成 14 折，留出标签一致率按叶数加权为 84.85%，按株等权为 77.38%。57 片叶通过拟合中线倾角熵的质量筛查。

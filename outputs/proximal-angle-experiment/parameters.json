@@ -1,0 +1,11 @@
+{
+  "radii": [
+    0.1,
+    0.15,
+    0.2
+  ],
+  "min_points": 30,
+  "max_window_span_deg": 15.0,
+  "min_axis_ratio": 1.5,
+  "reference": "existing accepted estimates, not ground truth"
+}

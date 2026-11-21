@@ -1,0 +1,21 @@
+{
+  "method": "per-plant exact contiguous three-cluster weighted SSE minimization",
+  "middle_size": "free",
+  "features": {
+    "attachment_height_ratio": 0.65,
+    "observed_shannon_entropy_bits": 0.2,
+    "horizontal_reach_q95_ratio": 0.05,
+    "distal_drop_ratio": 0.05,
+    "downward_path_fraction": 0.05
+  },
+  "text_sha256_lf": {
+    "leaf_features.csv": "3eb4923211caaf77331acb8e50843e8d2d62be25616f80bb3d7a22c68efc6654",
+    "plant_morphotypes/leaf_clusters.csv": "e80bb0074ac99b4e7795949fbb7974bde36c6de5634d48286c4599d2f7ed81ef",
+    "plant_morphotypes/plant_summary.csv": "dfe03e56f59b99f720e04bc2962ad1daf488d1706d9603a77c3455d8a5bbb75e"
+  },
+  "code_sha256_lf": {
+    "entropy_layers.py": "6c343fbe58139f8b0ab0f7ac2e90c3933bac94be097d47097fbbcf9d27345a0c",
+    "plant_morphotypes_v2.py": "cedc1f5110be1dc655ebb2616e2c11406ddcd3f4e4dedae7e94a2c13c02912e8"
+  },
+  "warning": "Target descriptions are hypotheses, not verified morphology labels."
+}
