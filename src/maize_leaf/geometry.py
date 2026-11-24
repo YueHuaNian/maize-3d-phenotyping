@@ -9,7 +9,7 @@ References:
 """
 import numpy as np
 from scipy.interpolate import BSpline
-from scipy.optimize import minimize_scalar
+from scipy.optimize import lsq_linear, minimize_scalar
 from scipy.spatial import cKDTree
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
@@ -19,7 +19,37 @@ def unit(v):
     return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-12)
 
 
-def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 1e4)):
+def filter_noise_clusters(points, normals=None):
+    """Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
+
+    Retains the largest connected component plus any major fragment (>= max(30, 5% of points)),
+    preventing small scanner artifacts near the stem from hijacking leaf root selection.
+    """
+    _, uniq_idx = np.unique(points, axis=0, return_index=True)
+    uniq_idx = np.sort(uniq_idx)
+    p = points[uniq_idx]
+    nrm = normals[uniq_idx] if normals is not None else None
+
+    tree = cKDTree(p)
+    d, idx = tree.query(p, k=min(13, len(p)))
+    spacing = float(np.median(d[:, 1]))
+    diam = float(np.linalg.norm(np.ptp(p, axis=0)))
+    radius = max(spacing * 5.0, diam * 0.03)
+
+    rows = np.repeat(np.arange(len(p)), d.shape[1] - 1)
+    cols = idx[:, 1:].ravel()
+    mask_e = d[:, 1:].ravel() <= radius
+    g = coo_matrix((np.ones(int(mask_e.sum())), (rows[mask_e], cols[mask_e])), shape=(len(p), len(p))).tocsr()
+    g = g.maximum(g.T)
+    _, lbl = connected_components(g)
+    sizes = np.bincount(lbl)
+    main_lbl = int(np.argmax(sizes))
+    min_size = max(30, int(0.05 * len(p)))
+    keep = (lbl == main_lbl) | (sizes[lbl] >= min_size)
+    return p[keep], (nrm[keep] if nrm is not None else None)
+
+
+def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 1e4), bounded=True):
     """Penalized B-spline (Eilers & Marx 1996) with automatic GCV smoothing (Wahba 1990)."""
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -58,7 +88,18 @@ def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 
 
     res = minimize_scalar(gcv, bounds=np.log10(lam_bounds), method="bounded")
     lam_opt = 10.0 ** res.x
-    C = np.linalg.solve(BtB + lam_opt * P + 1e-12 * np.eye(nc), BtY)
+    if bounded:
+        A_stack = np.vstack([Bw, np.sqrt(lam_opt) * D])
+        cols_c = []
+        for j in range(Y.shape[1]):
+            col = Y[:, j]
+            span = max(float(np.ptp(col)), 1e-5)
+            lo, hi = float(col.min() - 0.02 * span), float(col.max() + 0.02 * span)
+            rhs = np.r_[Yw[:, j], np.zeros(len(D))]
+            cols_c.append(lsq_linear(A_stack, rhs, bounds=(lo, hi), tol=1e-10).x)
+        C = np.asarray(cols_c).T
+    else:
+        C = np.linalg.solve(BtB + lam_opt * P + 1e-12 * np.eye(nc), BtY)
     spline = BSpline(knots, C[:, 0] if is_1d else C, k)
     return spline, float(lam_opt)
 
@@ -285,7 +326,7 @@ def build_normal_aligned_frame(curve, length, points, s_proj, normals=None, n_gr
     phi_clean = phi_raw.copy()
     for i in range(1, len(phi_raw) - 1):
         phi_clean[i] = float(np.median(phi_raw[i - 1 : i + 2]))
-    phi_spline, _ = fit_pspline_gcv(valid_s, phi_clean, n_basis=min(8, max(4, len(valid_s) // 3)), lam_bounds=(1e-2, 1e4))
+    phi_spline, _ = fit_pspline_gcv(valid_s, phi_clean, n_basis=min(8, max(4, len(valid_s) // 3)), lam_bounds=(1e-2, 1e4), bounded=False)
     phi_grid = phi_spline(s_grid)
 
     N_aligned = unit(np.cos(phi_grid)[:, None] * N0 + np.sin(phi_grid)[:, None] * B0)

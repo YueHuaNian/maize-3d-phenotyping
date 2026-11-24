@@ -88,11 +88,12 @@ def extract_width_profile(s_proj, lateral, length_obs, n_bins=32):
 
 
 def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completion=True):
-    """Fit Dornbusch (2011) blade model via MAP soft-L1 least squares + BIC truncation test.
+    """Fit Dornbusch (2011) blade model via MAP soft-L1 least squares + identifiable tip inversion.
 
-    Compares the intact-tip model M0 (L = L_obs, 5 params) against the truncated-tip model
-    M1 (L >= L_obs, 6 params) using BIC (Schwarz 1978), extending L only when distal width
-    has not tapered and freeing L significantly improves fit.
+    To avoid (L, c1) collinearity blow-up when the distal tip is truncated, the truncated model M1
+    anchors dimensionless shape parameters (xm, k_lig, c1, c2) tightly to the maize species prior
+    while solving for physical total length L >= L_obs from the observed distal width ratio, and
+    accepts M1 only under positive BIC evidence (delta BIC > 4, Kass & Raftery 1995).
     """
     prior = prior or MaizeShapePrior()
     n = len(s_obs)
@@ -101,25 +102,28 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
     xm_obs = float(s_obs[int(np.argmax(w_obs))] / max(length_obs, 1e-9))
     tip_ratio = float(np.median(w_obs[-min(3, n):]) / scale)
 
+    # Analytical upper bound on missing tip length implied by Dornbusch distal power law at observed tip_ratio:
+    # w(u_obs)/w_max = 1 - ((u_obs - xm)/(1 - xm))^c1  =>  u_obs = xm + (1 - xm)*(1 - tip_ratio)^(1/c1)
+    u_obs_est = prior.xm_mean + (1.0 - prior.xm_mean) * (max(1.0 - min(tip_ratio, 0.85), 0.05) ** (1.0 / prior.c1_mean))
+    L_prior = float(np.clip(length_obs / max(u_obs_est, 0.65), length_obs, length_obs * 1.45))
+
     def _fit(free_length):
         if free_length:
-            u_end0 = min(0.96, max(0.60, prior.xm_mean + (1.0 - prior.xm_mean) * (1.0 - min(tip_ratio, 0.92)) ** (1.0 / prior.c1_mean)))
-            L0 = min(length_obs / u_end0, length_obs * 1.45)
-            L_hi = length_obs * 1.65
-            x0 = np.array([L0, w_max0, np.clip(xm_obs * (length_obs / L0), 0.18, 0.58),
-                           np.clip(float(w_obs[0] / scale), 0.25, 0.95), prior.c1_mean, prior.c2_mean])
-            lb = np.array([length_obs, w_max0 * 0.80, 0.14, 0.15, 1.05, 1.05])
-            ub = np.array([L_hi, w_max0 * 1.30, 0.65, 0.98, 3.8, 4.5])
+            L_hi = min(length_obs * 1.45, L_prior * 1.15)
+            x0 = np.array([L_prior, w_max0, prior.xm_mean, np.clip(float(w_obs[0] / scale), 0.25, 0.95),
+                           prior.c1_mean, prior.c2_mean])
+            lb = np.array([length_obs, w_max0 * 0.85, max(0.20, prior.xm_mean - 0.12), 0.15,
+                           max(1.25, prior.c1_mean - 0.45), max(1.25, prior.c2_mean - 0.55)])
+            ub = np.array([L_hi, w_max0 * 1.20, min(0.55, prior.xm_mean + 0.12), 0.98,
+                           min(3.0, prior.c1_mean + 0.45), min(3.5, prior.c2_mean + 0.55)])
+            prior_w = 0.45
         else:
             x0 = np.array([w_max0, np.clip(xm_obs, 0.18, 0.58),
                            np.clip(float(w_obs[0] / scale), 0.25, 0.95), prior.c1_mean, prior.c2_mean])
             lb = np.array([w_max0 * 0.80, 0.14, 0.15, 1.05, 1.05])
-            ub = np.array([w_max0 * 1.30, 0.65, 0.98, 3.8, 4.5])
+            ub = np.array([w_max0 * 1.25, 0.65, 0.98, 3.8, 4.5])
+            prior_w = 0.08
         x0 = np.clip(x0, lb + 1e-6, ub - 1e-6)
-
-        # Mild Gaussian prior weight (sigma_data ~= 0.08 * w_max) so data drives intact fits
-        # while weakly regularizing unidentifiable shape tails when truncated.
-        prior_w = 0.08
 
         def residuals(params):
             if free_length:
@@ -150,7 +154,7 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
         return blade, bic
 
     blade_intact, bic_intact = _fit(free_length=False)
-    if not allow_tip_completion or tip_ratio <= 0.15:
+    if not allow_tip_completion or tip_ratio <= 0.22:
         return blade_intact
 
     blade_ext, bic_ext = _fit(free_length=True)

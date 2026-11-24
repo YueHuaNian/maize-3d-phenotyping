@@ -10,7 +10,7 @@ from scipy.interpolate import BSpline
 from scipy.optimize import minimize_scalar
 from scipy.spatial import cKDTree, Delaunay
 from scipy.spatial.distance import cdist
-from .geometry import MovingFrame, build_normal_aligned_frame, extract_midrib, project_points_to_curve
+from .geometry import MovingFrame, build_normal_aligned_frame, extract_midrib, filter_noise_clusters, project_points_to_curve
 from .morphology import (
     DornbuschBlade,
     MaizeShapePrior,
@@ -189,15 +189,8 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
     prior = prior or MaizeShapePrior()
     rng = np.random.default_rng(cfg.seed)
 
-    # Deduplicate and filter isolated scanner outliers (k=6 statistical distance).
-    _, uniq_idx = np.unique(points, axis=0, return_index=True)
-    uniq_idx = np.sort(uniq_idx)
-    p_u = points[uniq_idx]
-    n_u = normals[uniq_idx] if normals is not None else None
-    d6 = cKDTree(p_u).query(p_u, k=min(7, len(p_u)))[0][:, -1]
-    keep = d6 <= max(float(np.median(d6)) * 6.0, float(np.linalg.norm(np.ptp(p_u, axis=0))) * 0.02)
-    p = p_u[keep]
-    nrm = n_u[keep] if n_u is not None else None
+    # Deduplicate and remove tiny detached noise fragments (Euclidean cluster filtering).
+    p, nrm = filter_noise_clusters(points, normals)
 
     # 1. Geodesic-initialized Principal Curve midrib (arc-length parameterized).
     midrib_obs, length_obs, s_proj, spacing, midrib_lam = extract_midrib(p, stem, seed=cfg.seed)
