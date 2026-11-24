@@ -1,12 +1,12 @@
-"""Thin-Plate Spline (TPS) surface with exact GCV regularization and leaf model.
+"""Thin-Plate Spline (TPS) surface with spectral GML smoothing and leaf model.
 
 References:
 - Duchon (1977): Splines minimizing rotation-invariant semi-norms (Thin-Plate Splines).
-- Wahba (1990): Spline Models for Observational Data (exact QR-spectral GCV for TPS).
+- Wahba (1985): GML smoothing parameter selection; QR-spectral implementation.
 """
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 import numpy as np
-from scipy.interpolate import BSpline
+from scipy.interpolate import BSpline, PchipInterpolator
 from scipy.optimize import minimize_scalar
 from scipy.spatial import cKDTree, Delaunay
 from scipy.spatial.distance import cdist
@@ -15,7 +15,9 @@ from .geometry import (
     build_normal_aligned_frame,
     clean_leaf_points,
     extract_midrib,
+    fit_pspline_gcv,
     project_points_to_curve,
+    reparameterize_arc_length,
 )
 from .joint import joint_optimize_geometry
 from .morphology import (
@@ -35,6 +37,7 @@ class ModelConfig:
     nu: int = 90
     nv: int = 25
     max_tps_points: int = 350
+    refine_tps_points: int = 700
     allow_tip_completion: bool = True
     seed: int = 2026
 
@@ -46,7 +49,7 @@ def tps_kernel(r):
 
 
 class ThinPlateSplineGCV:
-    """2D Thin-Plate Spline with exact Generalized Cross-Validation smoothing (Wahba 1990)."""
+    """2D TPS with spectral GML smoothing; the class name is retained for NPZ/API compatibility."""
 
     def __init__(self, xy, w, a, lam, edf):
         self.xy = np.asarray(xy, dtype=float)
@@ -76,7 +79,7 @@ class ThinPlateSplineGCV:
         z = U.T @ (Q2.T @ y)
 
         # Generalized Maximum Likelihood / REML criterion (Wahba 1985, Annals of Statistics):
-        # theoretically avoids finite-sample GCV undersmoothing as lambda -> 0.
+        # Select smoothing from the data; neither GML nor GCV guarantees against overfitting.
         m_eff = len(eigvals)
 
         def gml(log_lam):
@@ -127,26 +130,63 @@ def triangle_areas(vertices, faces):
     return np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2.0
 
 
+def surface_orientation_diagnostics(model, nu=121, nv=31):
+    """Detect local chart reversals against the moving-frame normal.
+
+    A small point-to-surface distance or nonzero triangle area does not rule out
+    a folded strip. This samples its signed Jacobian away from the apex; it is
+    not a global triangle-intersection certificate.
+    """
+    s = np.linspace(0.01, 0.99, nu) * model.blade.length
+    v = np.linspace(-0.98, 0.98, nv)
+    ss, vv = np.meshgrid(s, v, indexing="ij")
+    xyz = model.evaluate(np.column_stack([ss.ravel(), vv.ravel()])).reshape(nu, nv, 3)
+    ds = np.gradient(xyz, s, axis=0, edge_order=2)
+    dv = np.gradient(xyz, v, axis=1, edge_order=2)
+    normal = np.cross(ds, dv)
+    _, _, reference = model.frame.evaluate(s)
+    signed = np.sum(normal * reference[:, None, :], axis=2)
+    cosine = signed / np.maximum(np.linalg.norm(normal, axis=2), 1e-12)
+    return {"reversed_fraction": float(np.mean(cosine < -1e-6)),
+            "minimum_normal_cosine": float(np.min(cosine)), "nu": nu, "nv": nv}
+
+
 class MaizeLeafModel:
     """Continuous parametric maize leaf surface:
     S(s, v) = C(s) + (v * w(s) / 2) * b(s) + q(s, v) * n(s),  s in [0, L], v in [-1, 1].
     """
 
-    def __init__(self, midrib, frame, blade, tps, length_obs):
+    def __init__(self, midrib, frame, blade, tps, length_obs, width_s=None, width_extra=None, apex_taper=True):
         self.midrib = midrib
         self.frame = frame
         self.blade = blade
         self.tps = tps
         self.length_obs = float(length_obs)
+        self.apex_taper = bool(apex_taper)
+        self.width_s = np.asarray(width_s if width_s is not None else [0.0, length_obs], dtype=float)
+        self.width_extra = np.asarray(width_extra if width_extra is not None else [0.0, 0.0], dtype=float)
+        self._width_extra = PchipInterpolator(self.width_s, self.width_extra, extrapolate=False)
+
+    def width(self, s):
+        """Morphology prior plus smooth observed-envelope support on the scanned span."""
+        extra = np.nan_to_num(self._width_extra(np.asarray(s, dtype=float)), nan=0.0)
+        return self.blade.width(s) + np.maximum(extra, 0.0)
 
     def evaluate(self, sv):
         sv = np.atleast_2d(np.asarray(sv, dtype=float))
         s, v = sv[:, 0], sv[:, 1]
         _, b, n = self.frame.evaluate(s)
-        w = self.blade.width(s)
+        w = self.width(s)
         # TPS trained on normalized (s / L_obs, v); smoothly tapers with blade width toward tip.
         u_tps = np.clip(s / self.length_obs, 0.0, 1.0)
         q = self.tps.evaluate(np.column_stack([u_tps, v]))
+        if self.apex_taper:
+            # A zero-width tip is one point, not a transverse TPS height curve.
+            # Preserve the center height while collapsing its transverse relief.
+            q_center = self.tps.evaluate(np.column_stack([u_tps, np.zeros(len(v))]))
+            transverse_taper = np.clip(w / max(0.1 * self.blade.w_max, 1e-12), 0.0, 1.0)
+            transverse_taper = transverse_taper ** 2 * (3.0 - 2.0 * transverse_taper)
+            q = q_center + transverse_taper * (q - q_center)
         if self.blade.length > self.length_obs + 1e-6:
             w_end = max(float(self.blade.width(self.length_obs)), 1e-6)
             taper = np.where(s > self.length_obs, np.clip(w / w_end, 0.0, 1.0), 1.0)
@@ -170,6 +210,9 @@ class MaizeLeafModel:
             tps_lam=self.tps.lam,
             tps_edf=self.tps.edf,
             length_obs=self.length_obs,
+            width_s=self.width_s,
+            width_extra=self.width_extra,
+            apex_taper=self.apex_taper,
         )
 
     @classmethod
@@ -179,7 +222,10 @@ class MaizeLeafModel:
         frame = MovingFrame(d["frame_s"], d["frame_T"], d["frame_B"], d["frame_N"])
         blade = DornbuschBlade(*[float(x) for x in d["blade"]])
         tps = ThinPlateSplineGCV(d["tps_xy"], d["tps_w"], d["tps_a"], float(d["tps_lam"]), float(d["tps_edf"]))
-        return cls(midrib, frame, blade, tps, float(d["length_obs"]))
+        return cls(midrib, frame, blade, tps, float(d["length_obs"]),
+                   d["width_s"] if "width_s" in d else None,
+                   d["width_extra"] if "width_extra" in d else None,
+                   bool(d["apex_taper"]) if "apex_taper" in d else False)
 
 
 def _aggregate_tps_bins(u, v, h, max_points, rng):
@@ -200,28 +246,105 @@ def _aggregate_tps_bins(u, v, h, max_points, rng):
     return uv_med, h_med
 
 
-def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
-    """Modern Route 1 pipeline:
-    1. Dual-stage Euclidean cluster + SOR denoising
-    2. L1-Medial Skeleton + Principal Curve midrib & RMF initialization
-    3. Joint differentiable optimization of midrib, roll frame, camber, and Dornbusch width
-    4. BIC-validated tip completion (Prévot 1991) + Median-aggregated GML-TPS surface
-    """
+def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
+             _stable_geometry=False, _geometry_mode=None):
+    """Fit and audit multiple geometric charts, select a non-reversed scan-fitting surface."""
     cfg = cfg or ModelConfig()
     prior = prior or MaizeShapePrior()
+    if _geometry_mode is None and not _stable_geometry:
+        from .quality import audit_model, surface_support_diagnostics
+        # Compare regular surfaces on identical retained scan points. Retrying
+        # only a single heavily smoothed curve can fix folds while harming fit.
+        retained, _ = clean_leaf_points(points, normals)
+        candidates = []
+        for mode in ("joint", "initial", "smoothed", "axis", "linear"):
+            candidate = fit_leaf(points, stem, normals=normals, prior=prior, cfg=cfg,
+                                 leaf_id=leaf_id, _geometry_mode=mode)
+            sv, _ = leaf_mesh_grid(candidate["blade"].length, 220, 61)
+            distances = cKDTree(candidate["model"].evaluate(sv)).query(retained)[0]
+            median, p95 = np.quantile(distances, [0.5, 0.95])
+            candidate["traits"]["scan_distance_median"] = float(median)
+            candidate["traits"]["scan_distance_p95"] = float(p95)
+            candidate["traits"]["surface_support_mean"] = surface_support_diagnostics(
+                candidate["model"], retained)["mean"]
+            candidates.append(candidate)
+        valid = [r for r in candidates if r["traits"]["orientation_reversed_fraction"] == 0.0]
+        if not valid:
+            raise ValueError(f"Leaf {leaf_id}: no candidate passed the local orientation check")
+        best = min(valid, key=lambda r: (
+            r["traits"]["scan_distance_p95"] + 0.5 * r["traits"]["scan_distance_median"]
+            + r["traits"]["surface_support_mean"],
+        ))
+        best["traits"]["geometry_candidates"] = [
+            {k: r["traits"][k] for k in ("geometry_method", "orientation_reversed_fraction",
+                                         "scan_distance_median", "scan_distance_p95",
+                                         "surface_support_mean")}
+            for r in candidates
+        ]
+        spacing = float(np.median(cKDTree(retained).query(retained, k=2)[0][:, 1]))
+        if (best["traits"]["scan_distance_p95"] > 3.0 * spacing
+                and cfg.max_tps_points < cfg.refine_tps_points):
+            dense = fit_leaf(points, stem, normals=normals, prior=prior,
+                             cfg=replace(cfg, max_tps_points=cfg.refine_tps_points), leaf_id=leaf_id)
+            accepted = (dense["traits"]["scan_distance_p95"] <= best["traits"]["scan_distance_p95"]
+                        and dense["traits"]["scan_distance_median"] <= best["traits"]["scan_distance_median"]
+                        and dense["traits"]["surface_support_mean"] <= best["traits"]["surface_support_mean"])
+            refinement = {"initial_limit": cfg.max_tps_points, "refined_limit": cfg.refine_tps_points,
+                          "accepted": bool(accepted), "initial_p95": best["traits"]["scan_distance_p95"],
+                          "refined_p95": dense["traits"]["scan_distance_p95"]}
+            if accepted:
+                best = dense
+            best["traits"]["tps_refinement"] = refinement
+        best["quality"] = audit_model(best["model"], retained)
+        best["traits"]["quality_passed"] = best["quality"]["passed"]
+        if not best["quality"]["passed"]:
+            raise ValueError(f"Leaf {leaf_id}: selected surface failed the quality checks: {best['quality']}")
+        return best
+
+    mode = _geometry_mode or "axis"
+    _stable_geometry = mode == "axis"
     rng = np.random.default_rng(cfg.seed)
 
     # 1. Dual-stage denoising (Euclidean clusters + SOR).
     p, nrm = clean_leaf_points(points, normals)
 
     # 2. L1-medial skeleton + Principal Curve midrib & normal-aligned RMF initialization.
-    midrib_0, length_0, s_proj_0, spacing, midrib_lam = extract_midrib(p, stem, seed=cfg.seed)
+    midrib_0, length_0, s_proj_0, spacing, midrib_lam = extract_midrib(
+        p, stem, seed=cfg.seed, stabilize=_stable_geometry
+    )
+    if mode == "linear":
+        # Monotone axial chart: longitudinal curvature is carried by TPS height.
+        # Its constant reference tangent prevents a strip from turning inside out.
+        center = np.median(p, axis=0)
+        _, _, axes = np.linalg.svd(p - center, full_matrices=False)
+        axial = (p - center) @ axes[0]
+        ends = center + np.array([axial.min(), axial.max()])[:, None] * axes[0]
+        if cKDTree(stem).query(ends)[0][0] > cKDTree(stem).query(ends)[0][1]:
+            ends = ends[::-1]
+        length_0 = float(np.linalg.norm(ends[1] - ends[0]))
+        controls = ends[0] + np.linspace(0.0, 1.0, 4)[:, None] * (ends[1] - ends[0])
+        midrib_0 = BSpline(np.r_[np.zeros(4), np.full(4, length_0)], controls, 3)
+        s_proj_0 = project_points_to_curve(p, midrib_0, length_0)
+        midrib_lam = 0.0
     frame_0 = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
 
+    if mode == "smoothed":
+        samples = np.linspace(0.0, length_0, 80)
+        midrib_0, midrib_lam = fit_pspline_gcv(samples, midrib_0(samples), n_basis=12,
+                                             lam_bounds=(0.1, 1e2))
+        midrib_0, length_0 = reparameterize_arc_length(midrib_0)
+        s_proj_0 = project_points_to_curve(p, midrib_0, length_0)
+        frame_0 = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
+
     # 3. Joint differentiable geometric optimization (fixes one-sided margin bias & frame roll).
-    midrib_obs, frame_obs, length_obs, s_proj = joint_optimize_geometry(
-        p, nrm, midrib_0, frame_0, length_0, s_proj_0, prior=prior
-    )
+    if mode != "joint":
+        # The unconstrained joint shifts can reintroduce the tight bends that
+        # caused a strip reversal. Keep the regularized geometry in this retry.
+        midrib_obs, frame_obs, length_obs, s_proj = midrib_0, frame_0, length_0, s_proj_0
+    else:
+        midrib_obs, frame_obs, length_obs, s_proj = joint_optimize_geometry(
+            p, nrm, midrib_0, frame_0, length_0, s_proj_0, prior=prior
+        )
 
     # 4. Express points in refined local physical coordinates (s, lateral r, normal h).
     _, b_p, n_p = frame_obs.evaluate(s_proj)
@@ -239,13 +362,26 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
     midrib_full, frame_full = extrapolate_midrib_and_frame(midrib_obs, frame_obs, length_obs, blade.length)
 
     # 7. Thin-Plate Spline (Duchon 1977) on bin-median representatives + GML/REML smoothing (Wahba 1985).
-    w_at_p = np.maximum(blade.width(s_proj), blade.w_max * 0.01)
+    # A global species outline must not clip a surviving measured margin. Preserve
+    # local envelopes; retain the prior alone where observations are missing.
+    width_s = np.r_[0.0, prof["s"], length_obs]
+    observed_width = 2.0 * np.maximum(prof["w_left"], prof["w_right"])
+    width_extra = np.maximum(observed_width - blade.width(prof["s"]), 0.0)
+    if mode in ("axis", "linear") and len(width_extra) >= 6:
+        # Do not turn noisy section quantiles into a scalloped blade boundary.
+        smooth_extra, _ = fit_pspline_gcv(prof["s"], width_extra, n_basis=8,
+                                         lam_bounds=(0.1, 1e2))
+        width_extra = np.maximum(smooth_extra(prof["s"]), 0.0)
+    width_extra = np.r_[width_extra[0], width_extra, 0.0]
+    extra_at_p = PchipInterpolator(width_s, width_extra)(s_proj)
+    w_at_p = np.maximum(blade.width(s_proj) + extra_at_p, blade.w_max * 0.01)
     u_norm = s_proj / length_obs
     v_norm = np.clip(2.0 * lateral / w_at_p, -1.25, 1.25)
     tps_xy, tps_h = _aggregate_tps_bins(u_norm, v_norm, normal_h, cfg.max_tps_points, rng)
     tps = ThinPlateSplineGCV.fit(tps_xy, tps_h)
 
-    model = MaizeLeafModel(midrib_full, frame_full, blade, tps, length_obs)
+    model = MaizeLeafModel(midrib_full, frame_full, blade, tps, length_obs, width_s, width_extra)
+    orientation = surface_orientation_diagnostics(model, 241, 61)
 
     # 7. Evaluate continuous surface on non-degenerate fan-apex (s, v) mesh.
     s_grid = np.linspace(0.0, blade.length, cfg.nu)
@@ -254,7 +390,7 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
 
     # 8. Region classification in continuous physical (s, r) blade coordinates + 3D point spacing.
     phys_obs = np.column_stack([s_proj, lateral])
-    w_grid = blade.width(grid_sv[:, 0])
+    w_grid = model.width(grid_sv[:, 0])
     phys_grid = np.column_stack([grid_sv[:, 0], 0.5 * grid_sv[:, 1] * w_grid])
     hull_inside = Delaunay(phys_obs).find_simplex(phys_grid, tol=1e-10) >= 0
 
@@ -276,7 +412,12 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
     # In-sample fit residual & phenotypic traits.
     fitted_p = model.evaluate(np.column_stack([s_proj, np.clip(2.0 * lateral / w_at_p, -1.0, 1.0)]))
     fit_rmse = float(np.sqrt(np.mean(np.sum((fitted_p - p) ** 2, axis=1))))
-    t_base = midrib_full(0.0, nu=1)
+    center_s = np.unique(np.r_[np.linspace(0.0, blade.length, 500), length_obs])
+    center_xyz = model.evaluate(np.column_stack([center_s, np.zeros(len(center_s))]))
+    center_arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(center_xyz, axis=0), axis=1))]
+    observed_center_length = float(np.interp(length_obs, center_s, center_arc))
+    completed_center_length = float(center_arc[-1])
+    t_base = center_xyz[1] - center_xyz[0]
     t_base = t_base / max(float(np.linalg.norm(t_base)), 1e-12)
     base_inclination_deg = float(np.degrees(np.arccos(np.clip(t_base[2], -1.0, 1.0))))
 
@@ -284,10 +425,12 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
         leaf_id=int(leaf_id) if leaf_id is not None else None,
         raw_points=len(points),
         fitted_points=len(p),
-        observed_length=float(length_obs),
-        completed_length=float(blade.length),
-        tip_completion_length=float(max(0.0, blade.length - length_obs)),
-        max_width=float(blade.w_max),
+        observed_length=observed_center_length,
+        completed_length=completed_center_length,
+        tip_completion_length=max(0.0, completed_center_length - observed_center_length),
+        parameter_observed_length=float(length_obs),
+        parameter_completed_length=float(blade.length),
+        max_width=float(np.max(model.width(s_grid))),
         xm_rel_pos=float(blade.xm),
         k_lig=float(blade.k_lig),
         c1=float(blade.c1),
@@ -301,7 +444,11 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
         midrib_gcv_lambda=float(midrib_lam),
         tps_gcv_lambda=float(tps.lam),
         tps_edf=float(tps.edf),
+        tps_training_points=len(tps.xy),
         support_radius=float(support_radius),
+        geometry_method=mode,
+        orientation_reversed_fraction=orientation["reversed_fraction"],
+        minimum_normal_cosine=orientation["minimum_normal_cosine"],
     )
     return dict(
         model=model,
@@ -311,9 +458,9 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
         face_regions=face_regions,
         sv=grid_sv,
         points=points,
-        midrib=midrib_full(s_grid),
+        midrib=model.evaluate(np.column_stack([s_grid, np.zeros(len(s_grid))])),
         s=s_grid,
-        width=blade.width(s_grid),
+        width=model.width(s_grid),
         blade=blade,
         traits=traits,
     )

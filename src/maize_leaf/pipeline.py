@@ -32,7 +32,8 @@ def calibrate_dataset_prior(pairs):
             if tip_ratio < 0.22:
                 blade = fit_dornbusch_blade(prof["s"], prof["w_obs"], l_obs, prior=base_prior, allow_tip_completion=False)
                 intact_blades.append(blade)
-    return calibrate_prior_from_leaves(intact_blades), len(intact_blades)
+    valid = [b for b in intact_blades if 0.20 < b.xm < 0.55 and 1.2 < b.c1 < 3.2 and 0.65 <= b.form_factor <= 0.82]
+    return calibrate_prior_from_leaves(valid), (len(valid) if len(valid) >= 3 else 0)
 
 
 def export_leaf(folder, plant, leaf_id, result):
@@ -49,6 +50,8 @@ def export_leaf(folder, plant, leaf_id, result):
     write_json(folder / f"{key}_midrib.json", {"s": result["s"].tolist(), "xyz": result["midrib"].tolist()})
     write_json(folder / f"{key}_blade.json", result["blade"].to_dict())
     write_json(folder / f"{key}_traits.json", result["traits"])
+    if "quality" in result:
+        write_json(folder / f"{key}_quality.json", result["quality"])
 
     png = folder / f"{key}_visualization.png"
     save_static_plot(png, result["points"], [result], title=f"Plant {plant.name} / Leaf {leaf_id}")
@@ -114,6 +117,9 @@ def run(input_root, output, plant_name=None, leaf_id=None, cfg=None, calibrate_p
         "tip_completion_length", "max_width", "xm_rel_pos", "k_lig", "c1", "c2",
         "form_factor_alpha", "surface_area", "observed", "interpolated", "extrapolated",
         "completion_ratio", "base_inclination_deg", "fit_rmse", "tps_gcv_lambda", "tps_edf",
+        "parameter_observed_length", "parameter_completed_length", "geometry_method",
+        "orientation_reversed_fraction", "scan_distance_median", "scan_distance_p95", "quality_passed",
+        "surface_support_mean", "tps_training_points",
     ]
     with (out / "traits.csv").open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)

@@ -1,4 +1,4 @@
-"""Joint differentiable geometric optimization of midrib, roll frame, width, and camber.
+"""Joint robust nonlinear fitting of midrib, roll frame, width, and camber.
 
 Simultaneously optimizes:
   - Midrib lateral & normal B-spline offsets (delta_b, delta_n)
@@ -61,7 +61,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     c0_s = midrib0(u_s * length0)
     t0_s, b0_s, n0_s = frame0.evaluate(u_s * length0)
 
-    # Precompute fixed 3D edge anchor points per bin for C-inf differentiable margin residuals.
+    # Fixed 3D edge anchors for piecewise-smooth margin residuals.
     nb = 22
     edges = np.linspace(0.0, length0, nb + 1)
     pL_list, pR_list, u_bin_list = [], [], []
@@ -187,7 +187,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
             slope_t = dq_du / length0
             n_surf = n_s - slope_b[:, None] * b_s - slope_t[:, None] * t0_s
             n_surf = n_surf / np.maximum(np.linalg.norm(n_surf, axis=1, keepdims=True), 1e-12)
-            # ||n_surf x n_scan|| = |sin(angle)| -> smooth differentiable alignment invariant to sign.
+            # ||n_surf x n_scan|| = |sin(angle)|; invariant to normal sign.
             res_nrm = w_nrm * np.linalg.norm(np.cross(n_surf, n_scan), axis=1)
         else:
             res_nrm = np.empty(0)

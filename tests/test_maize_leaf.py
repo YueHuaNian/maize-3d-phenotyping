@@ -4,10 +4,12 @@ import tempfile
 import unittest
 import numpy as np
 from scipy.spatial import cKDTree
-from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
+from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, extract_midrib, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
 from maize_leaf.morphology import DornbuschBlade, MaizeShapePrior, fit_dornbusch_blade
 from maize_leaf.pipeline import run
-from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, triangle_areas
+from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, leaf_mesh_grid, surface_orientation_diagnostics, triangle_areas
+from maize_leaf.geometry import MovingFrame
+from maize_leaf.quality import mesh_diagnostics, surface_support_diagnostics
 
 
 def make_synthetic_maize_leaf():
@@ -100,6 +102,8 @@ class MaizeLeafV2Tests(unittest.TestCase):
         res = fit_leaf(xyz[~missing], stem, normals=normals[~missing], cfg=ModelConfig(nu=80, nv=21), leaf_id=3)
         self.assertTrue(np.isfinite(res["vertices"]).all())
         self.assertTrue(np.all(triangle_areas(res["vertices"], res["faces"]) > 0))
+        np.testing.assert_allclose(res["midrib"], res["model"].evaluate(np.column_stack([res["s"], np.zeros(len(res["s"]))])))
+        self.assertTrue(res["quality"]["passed"])
         # Tip length should be extended beyond truncated observation.
         self.assertGreater(res["traits"]["completed_length"], res["traits"]["observed_length"])
         # Hole & margin reconstruction accuracy.
@@ -150,6 +154,90 @@ class MaizeLeafV2Tests(unittest.TestCase):
             self.assertTrue((out / "traits.csv").is_file())
             self.assertTrue((out / "plant_p1/whole_plant_mesh.ply").is_file())
             self.assertTrue((out / "plant_p1/leaves/leaf_02_model.npz").is_file())
+
+    def test_sparse_disconnected_terminal_fragment_is_preserved(self):
+        # A coherent terminal section with <5% of the scan remains leaf data,
+        # even when its spacing is greater than that of the main blade.
+        x, y = np.meshgrid(np.linspace(0.0, 0.75, 160), np.linspace(-0.04, 0.04, 21))
+        main = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
+        x, y = np.meshgrid(np.linspace(0.90, 1.0, 16), np.linspace(-0.02, 0.02, 5))
+        tip = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
+        points = np.vstack([main, tip, [[0.4, 0.6, 0.5]]])
+        normals = np.tile([0.0, 0.0, 1.0], (len(points), 1))
+        cleaned, nrm = clean_leaf_points(points, normals)
+        self.assertGreaterEqual(int(np.sum(cleaned[:, 0] >= 0.90)), 70)
+        self.assertLess(float(np.max(np.abs(cleaned[:, 1]))), 0.1)
+        np.testing.assert_allclose(nrm, np.tile([0.0, 0.0, 1.0], (len(cleaned), 1)))
+
+    def test_broad_blade_midrib_reaches_both_ends(self):
+        x, v = np.meshgrid(np.linspace(0.0, 0.30, 75), np.linspace(-1.0, 1.0, 25))
+        width = 0.05 + 0.14 * np.sin(np.pi * x / 0.30)
+        points = np.column_stack([x.ravel(), (v * width / 2).ravel(), np.zeros(x.size)])
+        stem = np.column_stack([np.zeros(40), np.zeros(40), np.linspace(-0.2, 0, 40)])
+        curve, length, _, _, _ = extract_midrib(points, stem)
+        sampled = curve(np.linspace(0.0, length, 300))
+        self.assertLess(float(cKDTree(sampled).query([[0.0, 0.0, 0.0], [0.30, 0.0, 0.0]])[0].max()), 0.015)
+        self.assertTrue(np.all(np.diff(sampled[:, 0]) > -1e-4))
+
+    def test_surface_check_detects_folded_strip_with_nonzero_triangles(self):
+        # A strip wider than its centerline's bend radius folds over itself,
+        # although every sampled triangle can still have positive area.
+        radius = 0.05
+        s = np.linspace(0.0, 0.14, 100)
+        theta = s / radius
+        points = np.column_stack([radius * np.sin(theta), radius * (1 - np.cos(theta)), np.zeros(len(s))])
+        curve, _ = fit_pspline_gcv(s, points, n_basis=16, lam_bounds=(1e-8, 1e-6))
+        T, B, N = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0.0, 0.0, 1.0]))
+        frame = MovingFrame(s, T, B, N)
+        blade = DornbuschBlade(s[-1], 0.22, 0.35, 0.6, 1.8, 2.0)
+        zero_tps = ThinPlateSplineGCV(np.array([[0, 0], [1, 0], [0, 1]]), np.zeros(3), np.zeros(3), 1.0, 3)
+        folded = MaizeLeafModel(curve, frame, blade, zero_tps, s[-1])
+        sv, faces = leaf_mesh_grid(s[-1], 90, 25)
+        self.assertTrue(np.all(triangle_areas(folded.evaluate(sv), faces) > 0))
+        self.assertGreater(surface_orientation_diagnostics(folded)["reversed_fraction"], 0.05)
+
+        straight_points = np.column_stack([s, np.zeros(len(s)), np.zeros(len(s))])
+        straight_curve, _ = fit_pspline_gcv(s, straight_points)
+        T, B, N = double_reflection_rmf(straight_curve(s), straight_curve(s, nu=1), n0=np.array([0.0, 0.0, 1.0]))
+        straight = MaizeLeafModel(straight_curve, MovingFrame(s, T, B, N), blade, zero_tps, s[-1])
+        self.assertEqual(surface_orientation_diagnostics(straight)["reversed_fraction"], 0.0)
+
+    def test_tip_is_one_point_and_legacy_loading_preserves_old_geometry(self):
+        s = np.linspace(0.0, 1.0, 60)
+        curve, _ = fit_pspline_gcv(s, np.column_stack([s, np.zeros(len(s)), np.zeros(len(s))]))
+        T, B, N = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
+        frame = MovingFrame(s, T, B, N)
+        blade = DornbuschBlade(1.0, 0.14, 0.35, 0.6, 1.8, 2.0)
+        # A transverse height slope previously left a line of different tip points
+        # even though the width was exactly zero.
+        tps = ThinPlateSplineGCV(np.array([[0, 0], [1, 0], [0, 1]]), np.zeros(3), np.array([0., .01, .04]), 1., 3.)
+        model = MaizeLeafModel(curve, frame, blade, tps, 1.0)
+        sv = np.column_stack([np.ones(31), np.linspace(-1, 1, 31)])
+        np.testing.assert_allclose(model.evaluate(sv), np.tile(model.evaluate([[1., 0.]]), (31, 1)), atol=1e-12)
+        self.assertTrue(mesh_diagnostics(model)["passed"])
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "current.npz"
+            model.save(path)
+            np.testing.assert_allclose(MaizeLeafModel.load(path).evaluate(sv), model.evaluate(sv), atol=1e-12)
+            with np.load(path) as saved:
+                legacy = {key: saved[key] for key in saved.files if key != "apex_taper"}
+            old_path = Path(folder) / "old.npz"
+            np.savez_compressed(old_path, **legacy)
+            old_model = MaizeLeafModel.load(old_path)
+            self.assertGreater(float(np.ptp(old_model.evaluate(sv)[:, 2])), 0.07)
+            self.assertFalse(mesh_diagnostics(old_model)["passed"])
+
+    def test_reverse_support_penalizes_unsupported_wide_surface(self):
+        s = np.linspace(0.0, 1.0, 60)
+        curve, _ = fit_pspline_gcv(s, np.column_stack([s, np.zeros(len(s)), np.zeros(len(s))]))
+        t, b, n = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
+        frame = MovingFrame(s, t, b, n)
+        tps = ThinPlateSplineGCV(np.array([[0, 0], [1, 0], [0, 1]]), np.zeros(3), np.zeros(3), 1., 3.)
+        narrow = MaizeLeafModel(curve, frame, DornbuschBlade(1., .10, .35, .6, 1.8, 2.), tps, 1.)
+        inflated = MaizeLeafModel(curve, frame, DornbuschBlade(1., .40, .35, .6, 1.8, 2.), tps, 1.)
+        scan = narrow.evaluate(leaf_mesh_grid(1., 100, 21)[0])
+        self.assertGreater(surface_support_diagnostics(inflated, scan)["mean"],
+                           5 * surface_support_diagnostics(narrow, scan)["mean"])
 
 
 if __name__ == "__main__":

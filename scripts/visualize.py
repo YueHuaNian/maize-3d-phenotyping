@@ -96,7 +96,8 @@ def load_from_model(model_path, nu, nv):
         leaf=0,
         stem=None,
         leaves=[dict(leaf_id=0, points=None, rgb=None, vertices=verts, faces=faces, face_regions=freg,
-                     midrib=m.midrib(np.linspace(0.0, m.blade.length, nu)), traits=m.blade.to_dict())],
+                     midrib=m.evaluate(np.column_stack([np.linspace(0.0, m.blade.length, nu), np.zeros(nu)])),
+                     traits=m.blade.to_dict())],
     )
 
 

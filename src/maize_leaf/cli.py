@@ -13,9 +13,12 @@ def main():
     p.add_argument("--leaf", type=int, help="Leaf semantic ID")
     p.add_argument("--nu", type=int, default=90)
     p.add_argument("--nv", type=int, default=25)
+    p.add_argument("--max-tps-points", type=int, default=350, help="Initial TPS representative-point limit")
+    p.add_argument("--refine-tps-points", type=int, default=700, help="Refinement limit; set <= initial limit to disable")
     p.add_argument("--no-tip-completion", action="store_true")
     p.add_argument("--no-prior-calibration", action="store_true")
     a = p.parse_args()
-    cfg = ModelConfig(nu=a.nu, nv=a.nv, allow_tip_completion=not a.no_tip_completion)
+    cfg = ModelConfig(nu=a.nu, nv=a.nv, allow_tip_completion=not a.no_tip_completion,
+                      max_tps_points=a.max_tps_points, refine_tps_points=a.refine_tps_points)
     run(a.input_root, a.output, a.plant, a.leaf, cfg, calibrate_prior=not a.no_prior_calibration)
     return 0

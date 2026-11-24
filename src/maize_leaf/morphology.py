@@ -19,8 +19,8 @@ from .geometry import MovingFrame, double_reflection_rmf, fit_pspline_gcv, unit
 class MaizeShapePrior:
     """Species prior on dimensionless Dornbusch (2011) maize leaf shape parameters.
 
-    Defaults correspond to typical maize blade morphology (Dornbusch et al. 2011;
-    Stewart & Dwyer 1999 alpha ~= 0.734) and can be empirically calibrated on intact leaves.
+    Configured engineering defaults can be empirically shrunk toward intact-leaf fits;
+    they are not a claim that each constant was directly measured in a cited paper.
     """
     xm_mean: float = 0.36
     xm_std: float = 0.10
@@ -190,11 +190,10 @@ def calibrate_prior_from_leaves(blades, base_prior=None, min_samples=10):
 
 
 def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=240):
-    """Extend midrib from L_obs to L_total using vertical-plane inclination model (Prévot 1991 / ADEL-Maize).
+    """Engineering damped-inclination extension from L_obs to L_total.
 
-    In Prévot et al. (1991), maize midrib inclination theta(s) evolves smoothly in the vertical
-    leaf plane while azimuth stays approximately constant. We fit local inclination slope d(theta)/ds
-    over the distal 25% of the observed midrib with gentle gravitational damping and integrate by arc length.
+    Fit the distal 25% inclination slope, limit upward bending, and integrate
+    unit tangents. This is not a verbatim implementation of Prevot or ADEL-Maize.
     """
     if length_total <= length_obs + 1e-6:
         return curve, frame

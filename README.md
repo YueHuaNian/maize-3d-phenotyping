@@ -1,15 +1,17 @@
 # 玉米叶片三维建模与缺失补全（V3.0）
 
-基于现代可微几何联合优化、$L_1$-Medial 骨架提取与植物形态学先验的玉米三维点云建模与缺失补全工具。
+基于几何多候选拟合、L1 骨架与植物形态先验的玉米点云建模、缺失补全和表型提取工具。输入需要已有叶片语义标签。
 
 ## 核心算法依据
 
 - **双重去噪**：欧氏近邻连通分量聚类滤波（Rusu & Cousins, 2011）+ 统计离群点去除 SOR（Rusu et al., 2008）。
 - **骨架与中脉**：$L_1$-Medial 点云收缩骨架（Huang et al., 2013, *ACM TOG*）+ 测地排序 + 弧长重参数化主曲线（Hastie & Stuetzle, 1989）+ 有界 GCV P-spline（Eilers & Marx, 1996）+ 牛顿正交投影（Piegl & Tiller, 1997）。
-- **可微几何联合优化**：在观测域上对中脉偏移 B-spline、双反射 RMF 滚转角（Wang et al., 2008）与法向一致性、叶面横向拱度场及 Dornbusch 叶宽包络进行 `soft_l1` 联合反演优化，克服单侧缺失对中脉中心线的拉偏。
-- **叶尖补全与叶面拟合**：Dornbusch et al. (2011, *Annals of Botany*) 分段幂函数 + Empirical Bayes 先验 + BIC 截断检验（$\Delta\mathrm{BIC} > 4$）+ Prévot et al. (1991) 倾角中脉外推 + 分箱中位数 GML-TPS（Duchon, 1977; Wahba, 1985）。
+- **多候选几何**：比较联合优化、初始中脉、平滑中脉、主轴及直线参考坐标；先排除采样局部翻转，再综合点到叶面的 P95、中位距离及观测叶面到点云的面积加权距离选择。
+- **叶尖补全与叶面拟合**：分段幂函数、经验先验、BIC 截断检验、工程阻尼外推及分箱中位 GML-TPS；零宽叶尖同时收敛横向高度，避免末端张开。
+- **质量检查**：局部翻转、网格/边界连通、退化面、叶尖闭合、拼接连续性和扫描贴合。失败时报告错误，避免静默导出未通过的曲面。
 
 详细公式见 [docs/method.md](docs/method.md)。
+14 株、90 片叶的逐叶输入哈希、参数及复查指标见 [验证记录](docs/validation/leaf_quality_2026-11-24.json)。
 
 ## 快速运行
 
@@ -19,6 +21,10 @@ pip install -r requirements.txt
 
 # 批量建模（默认读取 dataset/，输出至 outputs/maize_v2/）
 python scripts/run.py
+
+# 保留旧结果，在新目录重建后逐叶审计（距离单位与输入一致）
+python scripts/run.py --output outputs/maize_checked
+python scripts/validate_fit.py --baseline outputs/maize_v2 --candidate outputs/maize_checked --output outputs/maize_checked/fit_comparison.json
 
 # 指定单株或单叶
 python scripts/run.py --plant 1-1-2
@@ -45,7 +51,10 @@ import numpy as np
 from maize_leaf.surface import MaizeLeafModel
 
 model = MaizeLeafModel.load("outputs/maize_v2/plant_1-1-2/leaves/leaf_01_model.npz")
-sv = np.array([[0.2, -0.5], [0.5, 0.0], [0.8, 0.5]])  # [物理弧长 s, 归一化横向 v]
+s = np.array([0.2, 0.5, 0.8]) * model.blade.length
+sv = np.column_stack([s, [-0.5, 0.0, 0.5]])  # [参考曲线参数 s, 归一化横向 v]
 xyz = model.evaluate(sv)
 t, b, n = model.frame.evaluate(sv[:, 0])
 ```
+
+最终曲面中心轨迹为 `model.evaluate([[s, 0], ...])`。表型 CSV 同时保存中心轨迹叶长与参考参数跨度，二者不应混用。原始数据与生成大文件按 `.gitignore` 保留本地。

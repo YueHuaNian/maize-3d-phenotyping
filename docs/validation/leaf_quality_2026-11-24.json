@@ -1,0 +1,366 @@
+{
+  "date": "2026-11-24",
+  "scope": "14 plants, 90 segmented leaves; in-sample reconstruction checks, input-coordinate units",
+  "limitations": "Sampled local orientation and mesh checks do not prove global absence of self-intersections or biological ground truth in unobserved areas.",
+  "commands": [
+    "python scripts/run.py --output outputs/maize_two_way_final",
+    "python scripts/validate_fit.py --baseline outputs/archive/maize_v2_before_two_way_20261124 --candidate outputs/maize_two_way_final --output outputs/maize_two_way_final/fit_comparison.json",
+    "python scripts/run_tests.py"
+  ],
+  "parameters": {
+    "model_grid": [
+      90,
+      25
+    ],
+    "scan_distance_grid": [
+      220,
+      61
+    ],
+    "orientation_grid": [
+      241,
+      61
+    ],
+    "tps_points_initial": 350,
+    "tps_points_refined": 700
+  },
+  "versions": {
+    "python": "3.15.2",
+    "numpy": "2.5.5",
+    "scipy": "1.18.1"
+  },
+  "source_sha256": {
+    "src/maize_leaf/__init__.py": "4c0a5d804006bf76b34f01946caf35a6790946b97cfaebcaf66a45754edc4d43",
+    "src/maize_leaf/cli.py": "bade2a5bc0702634e0a68c2a79c52b8b213d78fba9c49a8345bb25b966f68bce",
+    "src/maize_leaf/geometry.py": "b27b673301aa84aa332e774d9c06265ee1e5916d7df22f3edb583717f159f719",
+    "src/maize_leaf/io.py": "9bd2c966968fe235a0b65cf816ef0e18c6fced1d1c41d4709447d2cecf799432",
+    "src/maize_leaf/joint.py": "fd5a7ffd8620e525e1064d2cb0901aa7c9d2b2260a2f6adad3c157e07f783847",
+    "src/maize_leaf/morphology.py": "240a0c251580f189ce5d88ca749419fd51c112dfe7f616edbb4d26949b01fe38",
+    "src/maize_leaf/pipeline.py": "e31859607ad3f306f1f11ac333881858847a4088c4f76985096e35757a646287",
+    "src/maize_leaf/quality.py": "c8181aafed88024ff9f229769ac4afe1c3bf8c73b37d88d20c69356cbda36517",
+    "src/maize_leaf/surface.py": "d1797b5a9c3a9ed01a10fb50b62759bb29495164fc5bf3902d323bfe276c62ae",
+    "src/maize_leaf/viz.py": "9c65944db6229104591ff9cfad2de7d249f247557462ae637ba8e0d0604b1bc5",
+    "scripts/validate_fit.py": "9a57ff5242e62af2e3c9e8db7b79575595440441952afa679a29cae0b4ec3691"
+  },
+  "inputs": [
+    {
+      "plant": "1-1-2",
+      "files": [
+        {
+          "name": "1-1-2.txt",
+          "sha256": "1cf7ccc53ad1bbb0b5f3d4a405f5f367f6aeffdeeea88c43ecd977360451e606"
+        },
+        {
+          "name": "1-1-2.csv",
+          "sha256": "30615072102a3320f0b2e9721cc52e7b6ae0faca28508e865605baa540c7dc22"
+        }
+      ]
+    },
+    {
+      "plant": "1-2-1",
+      "files": [
+        {
+          "name": "1-2-1.txt",
+          "sha256": "995bcf4c3b0708880f572cadfa645b1c8b06b4c5c709c6e4832bf5d38dc908aa"
+        },
+        {
+          "name": "1-2-1.csv",
+          "sha256": "5dd8c48a58ff4606a115b3ae034de1ebcb066f6058d7272121efb623c25d1015"
+        }
+      ]
+    },
+    {
+      "plant": "1-2-2",
+      "files": [
+        {
+          "name": "1-2-2.txt",
+          "sha256": "5d485a5dbf567d7c30716e7f0b8ebcfccd585e2a53b22333d8125eb9ecb5876d"
+        },
+        {
+          "name": "1-2-2.csv",
+          "sha256": "2edb5024705e8e5868c6fa204b6fe80c5f1e9231c823a6600d416334ddd07462"
+        }
+      ]
+    },
+    {
+      "plant": "1-3-1",
+      "files": [
+        {
+          "name": "1-3-1.txt",
+          "sha256": "2e03d50d0afb86f42705b529d24c3b543aabb3c1d0486e49cdff16298925f41d"
+        },
+        {
+          "name": "1-3-1.csv",
+          "sha256": "66497c32ebcf0ee0039441e471e6437c0cf04d8e794c952bed85536e309ccccc"
+        }
+      ]
+    },
+    {
+      "plant": "2-1-1",
+      "files": [
+        {
+          "name": "2-1-1.txt",
+          "sha256": "dcbcefb81363e1dfbf9dcaad7a46acd3f205e87addf7d5aae887893e6ae9046e"
+        },
+        {
+          "name": "2-1-1.csv",
+          "sha256": "9a72722ee499f624f4e729b99c32ea21aad8b49b6bf248f850135248b1b596de"
+        }
+      ]
+    },
+    {
+      "plant": "2-1-2",
+      "files": [
+        {
+          "name": "2-1-2.txt",
+          "sha256": "068d4e2cddb5d15459579db0337a3c243481829fb3367a40d2544db360c57253"
+        },
+        {
+          "name": "2-1-2.csv",
+          "sha256": "25d8f2bf5911665407517c6267fc0e4e9d7721ac2b12d24d1597036f62963aff"
+        }
+      ]
+    },
+    {
+      "plant": "2-2-1",
+      "files": [
+        {
+          "name": "2-2-1.txt",
+          "sha256": "7e617f92327764ef62c6ac28a76a4e0909035217d5ae3d0912cb4f78a7568fc6"
+        },
+        {
+          "name": "2-2-1.csv",
+          "sha256": "021fbd2f818d8397844cd801789f2940d501d0c2ba60e79a58289c523f38333d"
+        }
+      ]
+    },
+    {
+      "plant": "2-2-2",
+      "files": [
+        {
+          "name": "2-2-2.txt",
+          "sha256": "23aac9a2cbe9c396bf7b0e6d172f29af1459c3d10a26405357af91cc9b2457de"
+        },
+        {
+          "name": "2-2-2.csv",
+          "sha256": "893a20e35d918129a02564ffd02028f8aa3e1ce224dfe2b1e24def48ebcb2639"
+        }
+      ]
+    },
+    {
+      "plant": "2-3-1",
+      "files": [
+        {
+          "name": "2-3-1.txt",
+          "sha256": "760306ba94ccd9699365749e41a062bcd1cdf788b3fd9f8008cc5d41ca9a9c2a"
+        },
+        {
+          "name": "2-3-1.csv",
+          "sha256": "c20a13117524ebd13ec5b1c6a931a8479ab48944904ec1e8720c3c179355f8bf"
+        }
+      ]
+    },
+    {
+      "plant": "2-3-2",
+      "files": [
+        {
+          "name": "2-3-2.txt",
+          "sha256": "ae74599be69dcfd5b550f9e22da9c680a1c4d6628f87dc6713ef46a3c0a7a099"
+        },
+        {
+          "name": "2-3-2.csv",
+          "sha256": "95ec3aeca64a491dd210184f1ce039e70beecf63d3bb773642f5fa98b4111fa8"
+        }
+      ]
+    },
+    {
+      "plant": "2-4-1",
+      "files": [
+        {
+          "name": "2-4-1.txt",
+          "sha256": "6a90cb96df89e870a01bf08fa6948a535bc3d425962356fe7e169aa46488d8a8"
+        },
+        {
+          "name": "2-4-1.csv",
+          "sha256": "24b3fb6287b96f2a9b85faec1a3445b1d565047e9cf79bf6aeb7bca4e213048f"
+        }
+      ]
+    },
+    {
+      "plant": "2-4-2",
+      "files": [
+        {
+          "name": "2-4-2.txt",
+          "sha256": "9ffe914c181342ae0e9b0a5fe689c78d267f16dee8de729d8f37b40b56592d5f"
+        },
+        {
+          "name": "2-4-2.csv",
+          "sha256": "8bfcff18a3e388ee53a24edf49fc149ff8f4dcf864a97ec7e3bbf7f0189588f8"
+        }
+      ]
+    },
+    {
+      "plant": "2-5-1",
+      "files": [
+        {
+          "name": "2-5-1.txt",
+          "sha256": "78ea9b9d6cd00bc7dd1306a2c0cb3eaf203f10d88cd6d08b15968fdc7b1fda48"
+        },
+        {
+          "name": "2-5-1.csv",
+          "sha256": "595643ee0da9a37a38dd2c5eab932d83043b2ce8d8d13166ce3ff11a5d1ac274"
+        }
+      ]
+    },
+    {
+      "plant": "2-5-2",
+      "files": [
+        {
+          "name": "2-5-2.txt",
+          "sha256": "2fe0d388844808a48535b7440852a553da0f9d8d31665ae5ce60cf402c2f94e7"
+        },
+        {
+          "name": "2-5-2.csv",
+          "sha256": "af98f3a446eda3d047fe5a883c0d58c2eacc8ee9e744e4602324be47c115babe"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "leaves": 90,
+    "orientation_reversed_leaves": {
+      "before": 31,
+      "after": 0
+    },
+    "quality_passed": {
+      "before": 16,
+      "after": 90
+    },
+    "apex_closure_failed": {
+      "before": 63,
+      "after": 0
+    },
+    "surface_support_mean_median": {
+      "before": 0.006912675441839421,
+      "after": 0.006236199919963678
+    },
+    "surface_support_improved_leaves": 67,
+    "width_more_than_doubled_leaves": 0,
+    "raw": {
+      "before": {
+        "median": 0.0029271769033129627,
+        "p95": 0.01707404814877924,
+        "rmse": 0.010485391610225544
+      },
+      "after": {
+        "median": 0.0024994892668407064,
+        "p95": 0.015710050428561634,
+        "rmse": 0.009547910160772301
+      },
+      "p95_improved_leaves": 67
+    },
+    "retained": {
+      "before": {
+        "median": 0.0028175278392675775,
+        "p95": 0.012182157247759205,
+        "rmse": 0.006175546443859021
+      },
+      "after": {
+        "median": 0.0023728279351503657,
+        "p95": 0.010582051322344754,
+        "rmse": 0.00526109766453364
+      },
+      "p95_improved_leaves": 71
+    }
+  },
+  "key_leaves": [
+    {
+      "plant": "1-1-2",
+      "leaf": 2,
+      "spacing": 0.0037281790311491677,
+      "before": {
+        "raw": {
+          "median": 0.001958795458928184,
+          "p95": 0.010640808135395963,
+          "rmse": 0.01880032021192488
+        },
+        "retained": {
+          "median": 0.0019095243675877126,
+          "p95": 0.009880945740695259,
+          "rmse": 0.00439002992079279
+        }
+      },
+      "after": {
+        "raw": {
+          "median": 0.0018653109592268228,
+          "p95": 0.009532439480485787,
+          "rmse": 0.0176949534473049
+        },
+        "retained": {
+          "median": 0.0018295791760255553,
+          "p95": 0.00914983284674234,
+          "rmse": 0.004046743601687592
+        }
+      },
+      "surface_support_mean": {
+        "before": 0.00696832452206122,
+        "after": 0.007670406279995799
+      },
+      "max_width": {
+        "before": 0.1916323847346058,
+        "after": 0.18904997697212317
+      },
+      "coverage_within_3_spacing": {
+        "before": 0.957176843774782,
+        "after": 0.9690721649484536
+      }
+    },
+    {
+      "plant": "2-2-2",
+      "leaf": 4,
+      "spacing": 0.0035319066026033227,
+      "before": {
+        "raw": {
+          "median": 0.0038577663115101977,
+          "p95": 0.02197969866956877,
+          "rmse": 0.010516497668998688
+        },
+        "retained": {
+          "median": 0.0036895751523948334,
+          "p95": 0.017045569078676135,
+          "rmse": 0.007986963433591536
+        }
+      },
+      "after": {
+        "raw": {
+          "median": 0.002555730845008636,
+          "p95": 0.016969008150534613,
+          "rmse": 0.009299439762002487
+        },
+        "retained": {
+          "median": 0.002482602495754261,
+          "p95": 0.010692518744253745,
+          "rmse": 0.007375950536272863
+        }
+      },
+      "surface_support_mean": {
+        "before": 0.006987147181670639,
+        "after": 0.006677053731555157
+      },
+      "max_width": {
+        "before": 0.11208920091855429,
+        "after": 0.10356323554116648
+      },
+      "coverage_within_3_spacing": {
+        "before": 0.8473534971644613,
+        "after": 0.918241965973535
+      }
+    }
+  ],
+  "export_consistency": {
+    "plants": 14,
+    "leaves": 90,
+    "all_quality_passed": true,
+    "max_model_ply_coordinate_difference": 4.999980873776622e-09,
+    "max_plant_ply_coordinate_difference": 0.0
+  }
+}

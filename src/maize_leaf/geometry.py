@@ -23,7 +23,7 @@ def unit(v):
 def filter_noise_clusters(points, normals=None):
     """Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
 
-    Retains the largest connected component plus any major fragment (>= max(30, 5% of points)),
+    Retains the largest connected component plus coherent fragments (>= max(20, 1% of points)),
     preventing small scanner artifacts near the stem from hijacking leaf root selection.
     """
     _, uniq_idx = np.unique(points, axis=0, return_index=True)
@@ -41,7 +41,7 @@ def filter_noise_clusters(points, normals=None):
     _, lbl = connected_components(g)
     sizes = np.bincount(lbl)
     main_lbl = int(np.argmax(sizes))
-    min_size = max(30, int(0.05 * len(p)))
+    min_size = max(20, int(0.01 * len(p)))
     keep = (lbl == main_lbl) | (sizes[lbl] >= min_size)
     return p[keep], (nrm[keep] if nrm is not None else None)
 
@@ -67,8 +67,18 @@ def sor_filter(points, normals=None, k=12, n_sigma=2.0):
 def clean_leaf_points(points, normals=None):
     """Dual-stage PCL denoising: Euclidean cluster filtering + Statistical Outlier Removal (SOR)."""
     p, nrm = filter_noise_clusters(points, normals)
-    p, nrm = sor_filter(p, nrm)
-    return filter_noise_clusters(p, nrm)
+    # Estimate noise within each fragment: a sparse terminal fragment must not be
+    # compared with the sampling density of the much denser main blade.
+    tree = cKDTree(p)
+    spacing = float(np.median(tree.query(p, k=min(2, len(p)))[0][:, -1]))
+    radius = max(5.0 * spacing, 0.03 * float(np.linalg.norm(np.ptp(p, axis=0))))
+    _, labels = connected_components(tree.sparse_distance_matrix(tree, radius, output_type="coo_matrix"))
+    keep = np.zeros(len(p), dtype=bool)
+    for label in np.unique(labels):
+        idx = np.flatnonzero(labels == label)
+        part, _ = sor_filter(p[idx])
+        keep[idx] = cKDTree(part).query(p[idx])[0] < 1e-12
+    return p[keep], (nrm[keep] if nrm is not None else None)
 
 
 def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 1e4), bounded=True):
@@ -176,7 +186,7 @@ def geodesic_order(points, stem, k_nn=12):
 
 
 def reparameterize_arc_length(curve, n_samples=400):
-    """Reparameterize a 3D B-spline by true physical arc length s in [0, L]."""
+    """Approximate arc-length reparameterization by sampled chord lengths and spline refit."""
     t0, t1 = float(curve.t[curve.k]), float(curve.t[-curve.k - 1])
     ts = np.linspace(t0, t1, n_samples)
     pts = curve(ts)
@@ -186,7 +196,7 @@ def reparameterize_arc_length(curve, n_samples=400):
 
 
 def project_points_to_curve(points, curve, s_max, n_init=300, n_newton=5):
-    """Exact orthogonal closest-point projection via Newton iteration (Piegl & Tiller 1997)."""
+    """Approximate nearest-curve projection with sampled initialization and finite Newton steps."""
     grid_s = np.linspace(0.0, s_max, n_init)
     grid_p = curve(grid_s)
     _, idx = cKDTree(grid_p).query(points)
@@ -282,8 +292,42 @@ def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
     return X, spacing
 
 
-def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, seed=2026):
+def _axis_midrib(points, stem, axis, regularized=False):
+    """Data-supported fallback when contracted skeleton nodes lose blade extent.
+
+    Section medians follow the dominant spatial coordinate, so an incomplete
+    skeleton cannot introduce a loop inside an otherwise unfolded blade.
+    """
+    coordinate = points @ axis
+    edges = np.linspace(coordinate.min(), coordinate.max(), 25 if regularized else 33)
+    nodes = np.asarray([
+        np.median(points[(coordinate >= a) & (coordinate <= b)], axis=0)
+        for a, b in zip(edges[:-1], edges[1:])
+        if np.sum((coordinate >= a) & (coordinate <= b)) >= (6 if regularized else 3)
+    ])
+    if len(nodes) < 4:
+        return None
+    endpoint_distances = cKDTree(stem).query(nodes[[0, -1]])[0]
+    if endpoint_distances[0] > endpoint_distances[1]:
+        nodes = nodes[::-1]
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(nodes, axis=0), axis=1))]
+    curve, lam = fit_pspline_gcv(
+        s, nodes, n_basis=8 if regularized else 16,
+        lam_bounds=(1.0, 1e4) if regularized else (1e-5, 1e2),
+    )
+    curve, length = reparameterize_arc_length(curve)
+    return curve, length, lam
+
+
+def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, seed=2026, stabilize=False):
     """L1-Medial Skeleton (Huang et al. 2013) + Geodesic ordering + Principal Curve refinement."""
+    if stabilize:
+        _, _, axes = np.linalg.svd(points - np.median(points, axis=0), full_matrices=False)
+        fallback = _axis_midrib(points, stem, axes[0], regularized=True)
+        if fallback is not None:
+            curve, length, lam = fallback
+            spacing = float(np.median(cKDTree(points).query(points, k=2)[0][:, 1]))
+            return curve, length, project_points_to_curve(points, curve, length), spacing, lam
     if len(points) >= 60:
         skel, spacing = l1_medial_skeleton(points, seed=seed)
         geo, _ = geodesic_order(skel, stem, k_nn=8)
@@ -343,6 +387,21 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
         curve, length = reparameterize_arc_length(curve)
         s_proj = project_points_to_curve(points, curve, length)
         s_lo, s_hi = 0.0, length
+
+    # Contraction can erase a sparse disconnected tip or collapse a broad blade
+    # into a loop. Check the result against the *input*, not just the skeleton.
+    _, _, axes = np.linalg.svd(points - np.median(points, axis=0), full_matrices=False)
+    axis = axes[0]
+    axial_points = points @ axis
+    axial_curve = curve(np.linspace(0.0, length, 250)) @ axis
+    span = float(np.diff(np.quantile(axial_points, [0.01, 0.99]))[0])
+    steps = np.diff(axial_curve)
+    backtrack = min(float(np.maximum(steps, 0).sum()), float(np.maximum(-steps, 0).sum()))
+    if np.ptp(axial_curve) < 0.95 * span or backtrack > 0.08 * span:
+        fallback = _axis_midrib(points, stem, axis)
+        if fallback is not None:
+            curve, length, lam = fallback
+            s_proj = project_points_to_curve(points, curve, length)
 
     return curve, length, s_proj, spacing, lam
 

@@ -1,161 +1,324 @@
-# 方法原理与文献依据总览（V3.0）
+# 玉米叶片三维重建：逐步算法、公式与实现
 
-本文档系统总结本项目（`src/maize_leaf/`）当前用于玉米点云三维叶片建模、缺失补全与表型提取的全部核心算法、数学公式、文献来源及其适用边界。
+本文对应当前代码。原始点云只读，模型与检查报告另存于 `outputs/`。长度沿用输入坐标单位，面积为该单位的平方；程序不自动把数据换算为米或毫米。
 
----
+## 1. 输入、输出与完整流程
 
-## 一、方法总览表
+输入是已经带有语义编号的玉米点云：`semantic=0` 为茎秆，正整数为各叶片。本项目不执行自动语义分割。每片叶最终是一个可保存、加载、连续求值的参数曲面：
 
-| 处理阶段 | 代码模块与函数 | 采用的方法 | 主要依据与文献来源 |
+$$S(s,v)=C(s)+\frac{v w_{eff}(s)}2 b(s)+\widetilde q(s,v)n(s),\quad s\in[0,L],\ v\in[-1,1].$$
+
+$C$ 是参考曲线，$(t,b,n)$ 是局部正交标架，$w_{eff}$ 是横向宽度，$\widetilde q$ 是法向起伏。最终中心轨迹为 **$M(s)=S(s,0)$**，不一定等于参考曲线 $C(s)$。直线参考方案通过高度场表达纵向弯曲，不能把参考直线长度直接当作叶长。
+
+| 顺序 | 输入 | 处理 | 实现与输出 |
 |---|---|---|---|
-| **1. 数据读取与法向利用** | [io.py](../src/maize_leaf/io.py) (`load_pair`) | 配对 TXT / CSV 读取坐标、RGB、语义标签与扫描单位法向量 `(Nx, Ny, Nz)` | 保留原始扫描几何法向，用于标架对齐与可微联合优化 |
-| **2. 双重离群点滤波** | [geometry.py](../src/maize_leaf/geometry.py) (`filter_noise_clusters`, `sor_filter`, `clean_leaf_points`) | 欧氏半径连通分量聚类 + 统计离群点去除（SOR） | Rusu et al. (2008, *Robotics and Autonomous Systems*)；Rusu & Cousins (2011, PCL) |
-| **3. 茎秆中心线重建** | [geometry.py](../src/maize_leaf/geometry.py) (`fit_stem_centerline`) | 沿 Z 轴分箱取三维中位数 + 弦长参数化有界 GCV P-spline | Eilers & Marx (1996)；Wahba (1990) |
-| **4. $L_1$-Medial 骨架与中脉初始化** | [geometry.py](../src/maize_leaf/geometry.py) (`l1_medial_skeleton`, `geodesic_order`, `extract_midrib`, `project_points_to_curve`) | 最远点采样（FPS）+ 正则化 $L_1$-Medial 点云收缩骨架 + 测地排序 + 切线延长重投影主曲线（Principal Curve）+ 牛顿正交投影 | Huang et al. (2013, *ACM TOG*)；Hastie & Stuetzle (1989)；Piegl & Tiller (1997) *The NURBS Book* |
-| **5. 无扭转移动标架** | [geometry.py](../src/maize_leaf/geometry.py) (`double_reflection_rmf`, `build_normal_aligned_frame`) | 双反射最小旋转标架（RMF）+ 切线正交平面点云法向 SVD + `2φ` 相位解缠与中值/GCV 样条平滑 | Bishop (1975)；Wang et al. (2008, *ACM TOG*) |
-| **6. 可微几何联合优化** | [joint.py](../src/maize_leaf/joint.py) (`joint_optimize_geometry`) | 对中脉偏移 B-spline、RMF 滚转角、双变量拱度场与 Dornbusch 叶宽做端到端解析可微 `soft_l1` 联合优化（点面残差 + 扫描法向一致性 + 单侧鲁棒边界包络 + 中脉弯曲能） | 参数曲面逆向可微拟合范式（*NURBS-Diff* / FSPM 逆优化思想） |
-| **7. 物种先验标定与叶宽模型** | [morphology.py](../src/maize_leaf/morphology.py) (`extract_width_profile`, `calibrate_prior_from_leaves`, `fit_dornbusch_blade`) | 左右独立分位包络 + Empirical Bayes 物种先验收缩 + MAP `soft_l1` 分段幂函数拟合 + BIC 叶尖截断模型选择 | Dornbusch et al. (2011, *Annals of Botany*)；Stewart & Dwyer (1999, *Crop Science*)；Montgomery (1911)；Schwarz (1978) & Kass & Raftery (1995) |
-| **8. 截断叶尖中脉外推** | [morphology.py](../src/maize_leaf/morphology.py) (`extrapolate_midrib_and_frame`) | 垂直叶面倾角曲率阻尼外推 + 弧长积分 + RMF 延续 | Prévot, Aries & Monestiez (1991, *Agronomie*)；Fournier & Andrieu (1998, ADEL-Maize) |
-| **9. 分箱中位数 TPS 与网格生成** | [surface.py](../src/maize_leaf/surface.py) (`_aggregate_tps_bins`, `ThinPlateSplineGCV`, `leaf_mesh_grid`, `fit_leaf`) | 网格分箱中位数聚合 + 二维薄板样条（TPS）+ QR 谱分解 GML/REML 自动正则化 + 叶尖单顶点扇形三角化 + Delaunay 支持区域划分 | Duchon (1977)；Wahba (1985, *Annals of Statistics*; 1990)；Wood (2011, *JRSS-B*) |
+| 1 | 同名 TXT、CSV | 配对、读取、法向归一化 | `io.discover/load_pair`：点、标签、颜色、法向 |
+| 2 | 单叶点与法向 | 去重、连通簇保留、逐断片 SOR | `geometry.clean_leaf_points`：保留点 |
+| 3 | 茎秆点 | Z 分箱中位点、有界 P-spline | `fit_stem_centerline`：参考茎秆线 |
+| 4 | 叶片点、茎秆线 | L1 骨架、测地排序、主曲线、范围回退 | `extract_midrib`：初始参考中脉 |
+| 5 | 曲线、法向 | 双反射标架、测量法向滚转对齐 | `build_normal_aligned_frame`：局部标架 |
+| 6 | 初始几何 | 鲁棒联合优化及多种参考曲线 | `joint.py`、`surface.fit_leaf`：几何候选 |
+| 7 | 局部横向坐标 | 宽度包络、先验收缩、BIC 截断检验 | `morphology.py`：叶形和补全长度 |
+| 8 | 高度与有效宽度 | 分箱 TPS、GML、叶尖闭合 | `surface.py`：连续曲面 |
+| 9 | 候选曲面 | 局部翻转筛选、同点集贴合选优 | `surface.fit_leaf`：选中模型 |
+| 10 | 模型与点云 | 连续性、网格、贴合复查，表型与导出 | `quality.py`、`pipeline.py` |
 
----
+## 2. 配对读取和坐标约定
 
-## 二、分步算法原理与公式
+`discover` 递归读取首行以 `//X Y Z` 开头的 TXT，与同名 CSV 配对。CSV 提供 `X,Y,Z,semantic`，TXT 提供 RGB 和可用的 `Nx,Ny,Nz`。单位法向为：
 
-### 1. 双重离群点滤波（`filter_noise_clusters` + `sor_filter`）
+$$\widehat n_i=n_i/\max(\|n_i\|_2,10^{-12}).$$
 
-- **来源**：Rusu et al. (2008) *Statistical Outlier Removal (SOR)*；Rusu & Cousins (2011) 欧氏聚类滤波思想。
-- **做法**：
-  1. **欧氏半径连通聚类过滤**：先按精确坐标去重；以最近邻点距中位数 $d_{\mathrm{sp}}$ 与点云包围盒直径 $D$ 确定连通半径 $r = \max(5\,d_{\mathrm{sp}},\; 0.03\,D)$，通过 `cKDTree.sparse_distance_matrix` 构建半径连通图（避免各向异性密度下固定 $k$ 近邻漏连纵向行），仅保留最大主分量以及点数满足 $N_c \ge \max(30,\; 0.05\,N)$ 的主要叶片断片，防止茎秆附近微小误标注噪点簇劫持叶根起点。
-  2. **统计离群点去除（SOR）**：计算每个点的 $k=12$ 近邻平均距离 $\bar{d}_i$，基于稳健尺度 $\sigma_{\mathrm{rob}} = 1.4826\,\mathrm{MAD}(\bar{d})$ 与阈值 $\tau = \max(\mathrm{med}(\bar{d}) + 2.0\max(\sigma_{\mathrm{rob}}, 0.5\sigma),\; 2.2\,\mathrm{med}(\bar{d}))$ 剔除飘浮在主叶面周围的扫描散点毛刺，并再次执行连通分量检查。
+两份文件必须具有相同点数、点序和坐标，因为颜色与法向依赖逐行对应。本次本地 14 对输入逐行坐标差为零；这不替后来加入的文件作保证。茎秆拟合默认 Z 轴为高度方向。
 
----
+## 3. 去重、断片保留与稳健去噪
 
-### 2. $L_1$-Medial 骨架与主曲线中脉初始化
+### 3.1 半径连通图
 
-#### (1) 有界 GCV P-spline 曲线拟合（`fit_pspline_gcv`）
-- **来源**：Eilers & Marx (1996) *Penalized B-splines (P-splines)*；Wahba (1990) 广义交叉验证（GCV）；B-spline 凸包性质。
-- **原理**：采用带二阶差分惩罚的三次 B-spline（$n_{\mathrm{basis}} \le 10$）：
-  $$\min_C \|W^{1/2}(BC - Y)\|_F^2 + \lambda \|D_2 C\|_F^2$$
-  平滑权重 $\lambda$ 通过最小化 GCV 准则自动确定；对三维空间曲线拟合时（`bounded=True`），使用 `scipy.optimize.lsq_linear` 将各轴控制点约束在输入节点包围盒外扩 $2\%$ 范围内，防止样条过冲。
+按完整 XYZ 精确去重，同步保留法向。最近非自身点距中位数记为 $d_{sp}$，包围盒对角线长度记为 $D$。建图半径为：
 
-#### (2) $L_1$-Medial 点云收缩骨架 + 主曲线细化（`l1_medial_skeleton`, `extract_midrib`, `project_points_to_curve`）
-- **来源**：Huang et al. (2013, *ACM TOG*, SIGGRAPH) *$L_1$-Medial Skeleton of Point Cloud*；Hastie & Stuetzle (1989) 主曲线；Piegl & Tiller (1997, *The NURBS Book*) 牛顿精确正交投影。
-- **原理**：
-  1. **最远点采样与 $L_1$-Medial 收缩**：以确定性最远点采样（FPS）在叶片上均匀布置骨架种子点 $X = \{x_i\}$，在覆盖叶片横截面宽度的渐进带宽 $h \in [\max(0.12\,D, 6\,d_{\mathrm{sp}}),\; 0.24\,D]$ 下迭代更新正则化 Weiszfeld $L_1$-中位收缩步：
-     $$x_i^{(t+1)} = \frac{\sum_j \alpha_{ij}\, p_j}{\sum_j \alpha_{ij}} + \mu\,\sigma_i(X)\,\frac{\sum_{i'} \beta_{ii'}(x_i - x_{i'})}{\sum_{i'} \beta_{ii'}}$$
-     其中 $\alpha_{ij} = \theta(\|x_i - p_j\|)/\|x_i - p_j\|$ 对应局部加权几何中位数（对横截面离群点与孔洞具备高鲁棒性），$\sigma_i(X) = \lambda_{\max}/\sum \lambda_k$ 为局部方向线性度（Huang et al., 2013 Eq. 5），使节点收缩到一维中心脊线同时保持纵向均匀分布。
-  2. **测地排序与端点防收缩重投影**：在收缩后的骨架点上构建近邻图并从距茎秆最近点运行 Dijkstra 测地排序拟合初始中脉；两端沿切线延伸 $15\%$ 进行全景重投影，消除 $L_1$ 收缩导致的叶基/叶尖端点内缩，随后用牛顿迭代正交投影执行主曲线迭代得到弧长参数化初始中脉 $C_0(s)$。
+$$r=\max(5d_{sp},0.03D).$$
 
----
+使用 `cKDTree.sparse_distance_matrix` 构建无向半径图，保留最大连通分量，以及点数满足 $N_c\ge\max(20,\lfloor0.01N\rfloor)$ 的分量。这允许稀疏的断开末段继续参与拟合。簇阈值是工程筛选规则，不是植物学定义。
 
-### 3. 无扭转移动标架与点云法向对齐（`double_reflection_rmf`, `build_normal_aligned_frame`）
+### 3.2 各断片独立 SOR
 
-- **来源**：Bishop (1975) 平行输运标架；Wang et al. (2008, *ACM TOG*) 双反射最小旋转标架（Double Reflection RMF）。
-- **原理**：沿弧长用双反射法生成无扭转参考标架 $(T_0, B_0, N_0)$；将点云自带单位法向量 `(Nx, Ny, Nz)` 投影至切线正交平面 $\perp T_0$，经倍角相位解缠 $\phi_{\mathrm{raw}} = \frac{1}{2}\mathrm{unwrap}(2\,\mathrm{atan2}(\sin\phi, \cos\phi))$、3 点中值滤波与 GCV 样条平滑滚转角后旋转得到全叶正交标架 $(t(s), b(s), n(s))$。
+在每个保留分量内取最多 12 个非自身近邻，计算每点的近邻平均距离 $\bar d_i$：
 
----
+$$m=\operatorname{median}(\bar d_i),\qquad \sigma_{rob}=1.4826\operatorname{median}|\bar d_i-m|,$$
+$$\tau=\max\{m+2\max(\sigma_{rob},0.5\operatorname{std}(\bar d)),\ 2.2m\}.$$
 
-### 4. 可微几何联合优化（`joint_optimize_geometry`）
+保留 $\bar d_i\le\tau$ 的点。少于 35 点不做 SOR；若一次筛选剩余不足 $\max(35,0.85N_c)$，取消此次筛选。之后不再按全叶密度或新的簇点数阈值删除末段。
 
-- **核心动机**：传统串联管线中，“先算中脉再算宽度”会在单侧叶缘遮挡时把中脉中位数向完好侧拉偏，且后续步骤无法反向纠正中脉。
-- **联合参数化**：在观测域 $u = s / L_0 \in [0, 1]$ 上同时优化 **37 维可微几何状态向量 $\Theta$**：
-  - 中脉横向与法向三次 B-spline 偏移系数 $\delta_b, \delta_n \in \mathbb{R}^8$：$C(u) = C_0(u) + \delta_b(u)\,b_0(u) + \delta_n(u)\,n_0(u)$；
-  - 标架滚转角 B-spline 调整 $\delta_\phi \in \mathbb{R}^6$；
-  - 二维低阶横向拱度场 $q_{\mathrm{camber}}(u, v) = a_1(u)\,v + a_2(u)\,v^2$（$v \in [-1, 1]$，强制 $q_{\mathrm{camber}}(u, 0)=0$ 使中脉锚定在叶片中心脊上）；
-  - Dornbusch (2011) 叶宽参数 $(w_{\max}, x_m, k_{\mathrm{lig}}, c_1, c_2)$。
-- **可微联合目标函数**（通过 `scipy.optimize.least_squares(..., loss='soft_l1')` 求解）：
-  1. **点到曲面法向残差**：$(h_k - q_{\mathrm{camber}}(u_k, v_k)) / w_{\max}$；
-  2. **解析法向对齐残差**（直接利用扫描单位法向量 $n_k^{\mathrm{scan}}$）：由曲面解析偏导数 $\partial q/\partial u,\;\partial q/\partial v$ 计算预测单位法向 $\tilde{N}_k$，最小化 $\|\tilde{N}_k \times n_k^{\mathrm{scan}}\|_2 = |\sin\angle(\tilde{N}_k, n_k^{\mathrm{scan}})|$（对 $\pm 180^\circ$ 法向翻折不变）；
-  3. **单侧遮挡鲁棒边缘包络残差**：对各分段预提取的左右代表边界三维锚点 $(p_{L,i}, p_{R,i})$ 计算实时横向投影 $r_{L,i}(\Theta), r_{R,i}(\Theta)$，联合施加**包络越界惩罚**（$\max(0, -w_i/2 - r_{L,i}),\;\max(0, r_{R,i} - w_i/2)$）、**完好侧对齐**（匹配外伸更宽的完好边到 $\pm w_i/2$）与**饱和双侧居中项**（$\tanh$ 截断使单侧大缺口不拉偏中脉）；
-  4. **中脉弯曲能量正则化**：直接惩罚更新后三维中脉的二阶差分 $\lambda_C \|D_2 C(\Theta)\|_F^2$，迫使中脉跨越单侧缺口时保持解剖学平直光滑。
+邻域统计思想参见 [PCL 官方 SOR 说明](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html)。本实现是分断片、中位数/MAD 的稳健变体，不等同于原版全局均值/标准差 SOR，也不依赖 PCL 软件包。
 
----
+## 4. 公共拟合器：有界 P-spline 与 GCV
 
-### 5. 叶宽轮廓、先验标定与叶尖缺失反演
+给定节点参数 $t_i$、观测 $Y_i$ 和 B-spline 基矩阵 $B$，求系数 $A$：
 
-#### (1) Dornbusch 分段幂函数叶形模型（`DornbuschBlade`）
-- **来源**：Dornbusch, Watt, Baccar, Fournier & Andrieu (2011, *Annals of Botany* 107(5): 865–873)；面积形状系数依据 Stewart & Dwyer (1999, *Crop Science* 39: 422–427) 与 Montgomery (1911)。
-- **公式**：以归一化物理弧长 $u = s / L \in [0, 1]$ 表示，叶片在最宽位置 $x_m$ 处分为基部段（$0 \le u \le x_m$）和远端叶尖段（$x_m < u \le 1$），保证在 $x_m$ 处 $C^1$ 连续：
-  $$w(s) = \begin{cases} w_{\max}\left[1 - (1 - k_{\mathrm{lig}})\left(\dfrac{x_m - u}{x_m}\right)^{c_2}\right], & 0 \le u \le x_m \\[10pt] w_{\max}\left[1 - \left(\dfrac{u - x_m}{1 - x_m}\right)^{c_1}\right], & x_m < u \le 1 \end{cases}$$
-  其中 $k_{\mathrm{lig}} = w(0) / w_{\max}$ 为叶耳基部相对宽度，$c_1, c_2$ 控制叶尖段与基部段边缘曲率。其精确积分面积形状系数为：
-  $$\alpha = \frac{1}{L\,w_{\max}}\int_0^L w(s)\,ds = x_m\left(1 - \frac{1 - k_{\mathrm{lig}}}{c_2 + 1}\right) + (1 - x_m)\frac{c_1}{c_1 + 1}$$
-  玉米叶片文献典型值约为 $\alpha \approx 0.734\text{–}0.75$（Stewart & Dwyer, 1999）。
+$$\min_A\|W^{1/2}(BA-Y)\|_F^2+\lambda\|D_2A\|_F^2.$$
 
-#### (2) 左右宽度提取与 Empirical Bayes 先验标定（`extract_width_profile`, `calibrate_prior_from_leaves`）
-- **左右包络分离**：沿弧长分 32 箱，分别取横向坐标 $r$ 的 $2\%$ 和 $98\%$ 分位数作为左/右半宽 $(w_L, w_R)$；正常情况下总宽取 $w_L + w_R$，仅当单侧出现超过 $75\%$ 的严重缺失时，用 $2\max(w_L, w_R)$ 恢复局部总宽包络。
-- **Empirical Bayes 先验收缩**：从批次中末端自然收尖（`tip_ratio < 0.22`）且点数充足的近完整叶片拟合得到的有效无量纲参数（$0.20 < x_m < 0.55,\; 1.2 < c_1 < 3.2,\; 0.65 \le \alpha \le 0.82$），按收缩权重 $w = \frac{n}{n + 10}$ 向玉米文献先验（`xm=0.36, k_lig=0.62, c1=1.85, c2=2.00`）收缩，得到当前数据集的经验贝叶斯先验。
+$D_2$ 是控制系数的二阶差分。默认三次样条、请求 10 个基函数，实际次数/基数受节点数限制；内节点均匀、端点夹持。默认权重为 1。无界平滑器为：
 
-#### (3) 可辨识叶尖长度反演与 BIC 模型选择（`fit_dornbusch_blade`）
-- **来源**：MAP 鲁棒非线性最小二乘（`soft_l1`）+ 贝叶斯信息准则 BIC（Schwarz, 1978; Kass & Raftery, 1995）。
-- **原理**：为避免叶尖截断时总长 $L$ 与远端指数 $c_1$ 之间的共线性失控：
-  1. 先拟合固定长度的完整叶模型 $M_0$（$L = L_{\mathrm{obs}}$，5 参数）。
-  2. 若末端宽度比例 `tip_ratio > 0.22`，根据 Dornbusch 远端幂律解析反演先验叶长上限：
-     $$u_{\mathrm{obs}} \approx x_m + (1 - x_m)(1 - \text{tip\_ratio})^{1/c_1}, \quad L_{\mathrm{prior}} = \mathrm{clip}\!\left(\frac{L_{\mathrm{obs}}}{u_{\mathrm{obs}}},\; L_{\mathrm{obs}},\; 1.45\,L_{\mathrm{obs}}\right)$$
-     并在紧约束物种先验正则化（`prior_w = 0.45`）下拟合截断模型 $M_1$（$L \ge L_{\mathrm{obs}}$，6 参数）。
-  3. 按 BIC 公式 $\mathrm{BIC} = n\ln(\mathrm{RSS}/n) + k\ln n$ 对比两模型，仅当存在正贝叶斯证据 $\mathrm{BIC}_{M_1} + 4 < \mathrm{BIC}_{M_0}$（Kass & Raftery, 1995）时才认定叶尖被截断并延长 $L$。
+$$H_\lambda=B_w(B_w^TB_w+\lambda D_2^TD_2+10^{-12}I)^{-1}B_w^T,$$
+$$GCV(\lambda)=\frac{\operatorname{mean}|Y_w-B_wA_\lambda|^2}{\max(1-\operatorname{tr}H_\lambda/n,10^{-4})^2}.$$
 
-#### (4) 截断叶尖中脉外推（`extrapolate_midrib_and_frame`）
-- **来源**：Prévot, Aries & Monestiez (1991, *Agronomie*) 与 Fournier & Andrieu (1998, ADEL-Maize) 玉米中脉垂直叶面倾角几何模型。
-- **做法**：当 $L > L_{\mathrm{obs}}$ 时，保持观测末端 $25\%$ 弧长段的水平方位角不变，拟合俯仰倾角 $\theta(s) = \arcsin(t_z(s))$ 的局部变化率 $\kappa \le 0$（仅允许自然下垂、禁止向上反翘），以指数阻尼曲率沿弧长积分延拓至 $s = L$（下垂角下限 $-0.48\pi$），并同步用双反射 RMF 延续正交标架。
+在 $\log_{10}\lambda$ 上作有界一维优化，默认区间 $[10^{-3},10^4]$，各调用可另设。`bounded=True` 时再用堆叠最小二乘，将每轴控制系数限制于输入坐标范围外扩 2% 的盒内，坐标跨度下限为 $10^{-5}$。
 
----
+GCV 选参使用无界线性解，最终系数可以有边界约束，因此是有界拟合的选参代理，不是对活动约束解的精确 GCV。差分惩罚背景见 [Eilers & Marx (1996)](https://doi.org/10.1214/ss/1038425655)。
 
-### 6. 叶面起伏与孔洞补全：分箱中位数聚合 + Duchon TPS + GML/REML
+## 5. 茎秆参考线
 
-- **来源**：Duchon (1977) 薄板样条；Wahba (1985, *Annals of Statistics* 13(4): 1378–1402; 1990) 广义最大似然（GML / REML）；Wood (2011, *JRSS-B*)。
-- **原理**：在 $(u_{\mathrm{norm}}, v_{\mathrm{norm}}) = (s / L_{\mathrm{obs}},\; 2r / w(s))$ 网格上（经 $40\times 12$ 空间分箱并对每格内所有点取**二维坐标与法向高度 $h$ 的中位数**作为代表点，上限 350 个，彻底屏蔽离散单点毛刺），用核函数 $\phi(d) = d^2\ln d$ 的二维薄板样条拟合相对标架的法向高度 $h = (p - C(s))\cdot n(s)$，最小化薄弹性板弯曲能量：
-  $$\min_q \sum_{i=1}^m \bigl(q(u_i, v_i) - h_i\bigr)^2 + \lambda \iint \bigl(q_{uu}^2 + 2q_{uv}^2 + q_{vv}^2\bigr)\,du\,dv$$
-  通过线性多项式矩阵 $P=[1,u,v]$ 的完整 QR 分解 $P=[Q_1,Q_2][R;0]$ 投影到正交补空间并对 $Q_2^\top K Q_2 = U\Lambda U^\top$ 做特征分解，直接优化 **GML/REML 目标函数**自动求解最优平滑参数 $\lambda^*$：
-  $$\mathrm{GML}(\lambda) = \left(\sum_{j=1}^{m-3}\frac{z_j^2}{\lambda_j + \lambda}\right) \exp\!\left(\frac{1}{m-3}\sum_{j=1}^{m-3}\ln(\lambda_j + \lambda)\right)$$
-  相比有限样本 GCV，GML/REML 从理论上避免了 $\lambda \to 0$ 时的过拟合欠平滑；当离散噪点多时自动增大 $\lambda^*$、降低有效自由度 `edf`。
-- **最终连续参数曲面**：
-  $$S(s, v) = C(s) + \frac{v\,w(s)}{2}\,b(s) + q(s, v)\,n(s), \quad s \in [0, L],\; v \in [-1, 1]$$
-  在叶尖外推段，法向残差按 $w(s) / w(L_{\mathrm{obs}})$ 平滑衰减收拢至中脉。
+按 Z 分为 $\min(50,\max(8,\lfloor N/40\rfloor))$ 箱；每箱至少三点才取三维中位点 $P_j$。用弦长参数：
 
----
+$$t_0=0,\qquad t_j=t_{j-1}+\|P_j-P_{j-1}\|_2.$$
 
-### 7. 网格构造与区域支持划分（`leaf_mesh_grid`, `fit_leaf`）
+调用有界 P-spline，保存样条参数并采样 160 点。它主要用于判断叶根方向，这一步不生成茎秆实体表面。
 
-- **单顶点扇形闭合**：在最后一行横向截面与唯一叶尖顶点 $(L, 0)$ 之间采用扇形三角剖分，避免 $w(L)=0$ 处产生重复退化点与零面积三角面。
-- **支持区域标签**（`0=observed`、`1=interpolated`、`2=extrapolated`）：
-  - 在物理参数平面 $(s_{\mathrm{proj}}, r)$ 上构建实测点二维 `Delaunay` 凸包；
-  - 在三维空间中以支持半径 $R_{\mathrm{sup}} = \max(2.5\,d_{\mathrm{sp}},\; 0.75\max(\Delta u, \Delta v))$ 判定近邻支持：凸包外或 $s > L_{\mathrm{obs}}$ 记为 `extrapolated`，凸包内且三维近邻距离 $\le R_{\mathrm{sup}}$ 记为 `observed`，凸包内其余空洞记为 `interpolated`；三角面取三顶点中的最保守标签（$2 > 1 > 0$）。
+## 6. 骨架、测地排序与初始中脉
 
----
+### 6.1 L1 中位收缩
 
-## 三、实测验证摘要（14 株 / 90 片叶，V3.0）
+随机种子默认 2026。最多取 2400 个参考点 $Q$，通过最远点采样布置最多 180 个种子 $X$，请求数量为 $\min(180,\max(24,\lfloor|Q|/10\rfloor))$，参考点不足时全取。
 
-- **全量重建（`scripts/run.py`）**：
-  - 14 株、90 片玉米叶全部成功重建，聚类 + SOR 共过滤 `12,778` 个离群噪点；严重中脉过冲（$L_{\mathrm{obs}} / D > 1.45$）为 `0 / 90`。
-  - 去噪点到曲面中位距离 / 最大宽 $W_{\max}$ 为 `0.042`（范围 `0.021 ~ 0.104`），95% 分位残差中位数为 `0.172 * W_max`；面积形状系数 $\alpha$ 中位数为 `0.730`（与 Stewart & Dwyer 1999 文献值 `0.734` 吻合）。
-- **真实玉米完整叶留出遮挡基准（`scripts/validate_holdout.py`）**：
-  - 内部孔洞（`hole`）：3D 中位误差 `0.0063`（4.0% $W_{\max}$），叶长误差 `1.52%`，叶面积误差 `4.78%`；
-  - 单侧叶缘缺口（`margin`）：3D 中位误差 `0.0108`（6.2% $W_{\max}$），叶长误差 `3.53%`，叶面积误差 `5.54%`；
-  - 15% 叶尖截断（`tip_15pct`）：3D 中位误差 `0.0141`（8.8% $W_{\max}$），叶面积误差 `8.67%`，叶长误差 `25.72%`（极末端隐藏长度仍受远端形状可辨识性限制）。
+带宽 $h$ 从 $\max(0.12D,6d_{sp})$ 开始，每两轮扩大 1.15 倍，上限为 $\max(0.24D,h_{initial})$，共 10 轮。定义：
 
----
+$$\theta(d)=e^{-4d^2/h^2},\quad \alpha_{ij}=\frac{\theta(\|x_i-q_j\|)}{\max(\|x_i-q_j\|,10^{-4}h)},$$
+$$A_i=\frac{\sum_j\alpha_{ij}q_j}{\sum_j\alpha_{ij}},\quad \beta_{ii'}=\frac{\theta(\|x_i-x_{i'}\|)}{\max(\|x_i-x_{i'}\|^2,(0.06h)^2)}.$$
 
-## 四、主要参考文献
+局部加权协方差最大特征值占总和的比例为方向线性度 $\sigma_i$，更新：
 
-1. **Bishop, R. L. (1975).** There is more than one way to frame a curve. *The American Mathematical Monthly*, 82(3), 246–251.
-2. **Dijkstra, E. W. (1959).** A note on two problems in connexion with graphs. *Numerische Mathematik*, 1, 269–271.
-3. **Dornbusch, T., Watt, J., Baccar, R., Fournier, C., & Andrieu, B. (2011).** A comparative analysis of leaf shape of wheat, barley and maize using an empirical shape model. *Annals of Botany*, 107(5), 865–873.
-4. **Duchon, J. (1977).** Splines minimizing rotation-invariant semi-norms in Sobolev spaces. In *Constructive Theory of Functions of Several Variables*, Springer, 85–100.
-5. **Eilers, P. H. C., & Marx, B. D. (1996).** Flexible smoothing with B-splines and penalties. *Statistical Science*, 11(2), 89–121.
-6. **Fournier, C., & Andrieu, B. (1998).** A 3D architectural and process-based model of maize development (ADEL-maize). *Annals of Botany*, 81(2), 233–250.
-7. **Hastie, T., & Stuetzle, W. (1989).** Principal curves. *Journal of the American Statistical Association*, 84(406), 502–516.
-8. **Huang, H., Wu, S., Cohen-Or, D., Gong, M., Zhang, H., Li, G., & Chen, B. (2013).** $L_1$-medial skeleton of point cloud. *ACM Transactions on Graphics*, 32(4), Article 65 (pp. 65:1–65:8).
-9. **Kass, R. E., & Raftery, A. E. (1995).** Bayes factors. *Journal of the American Statistical Association*, 90(430), 773–795.
-10. **Montgomery, E. G. (1911).** Correlation studies in corn. *Nebraska Agricultural Experiment Station Annual Report*, 24, 108–159.
-11. **Piegl, L., & Tiller, W. (1997).** *The NURBS Book* (2nd ed.). Springer.
-12. **Prévot, L., Aries, F., & Monestiez, P. (1991).** Modélisation de la structure géométrique du maïs. *Agronomie*, 11(6), 491–503.
-13. **Rusu, R. B., Marton, Z. C., Blodow, N., Dolha, M., & Beetz, M. (2008).** Towards 3D point cloud based object maps for household environments. *Robotics and Autonomous Systems*, 56(11), 927–941.
-14. **Rusu, R. B., & Cousins, S. (2011).** 3D is here: Point Cloud Library (PCL). *IEEE International Conference on Robotics and Automation (ICRA)*, 1–4.
-15. **Schwarz, G. (1978).** Estimating the dimension of a model. *The Annals of Statistics*, 6(2), 461–464.
-16. **Stewart, D. W., & Dwyer, L. M. (1999).** Mathematical characterization of leaf shape and area of maize hybrids. *Crop Science*, 39(2), 422–427.
-17. **Tenenbaum, J. B., de Silva, V., & Langford, J. C. (2000).** A global geometric framework for nonlinear dimensionality reduction. *Science*, 290(5500), 2319–2323.
-18. **Wahba, G. (1985).** A comparison of GCV and GML for choosing the smoothing parameter in the generalized spline smoothing problem. *The Annals of Statistics*, 13(4), 1378–1402.
-19. **Wahba, G. (1990).** *Spline Models for Observational Data*. SIAM.
-20. **Wang, W., Jüttler, B., Zheng, D., & Liu, Y. (2008).** Computation of rotation minimizing frames. *ACM Transactions on Graphics*, 27(1), Article 2 (pp. 2:1–2:18).
-21. **Wood, S. N. (2011).** Fast stable restricted maximum likelihood and marginal likelihood estimation of semiparametric generalized linear models. *Journal of the Royal Statistical Society: Series B*, 73(1), 3–36.
+$$x_i\leftarrow A_i+0.28\sigma_i\frac{\sum_{i'\ne i}\beta_{ii'}(x_i-x_{i'})}{\sum_{i'\ne i}\beta_{ii'}}.$$
+
+斥力向量长度先截到 $0.25h$。该实现采用 [Huang et al. (2013)](https://doi.org/10.1145/2461912.2461913) 的局部 L1 吸引/方向斥力思想，没有实现原论文完整的分支识别和骨架网络拓扑恢复。
+
+### 6.2 测地排序与缺口桥接
+
+在骨架点上建立 8 近邻无向图，边权为欧氏距离；通用 `geodesic_order` 默认 12 近邻。若不连通，从最大分量开始，反复通过最近点对连接另一个分量。距茎秆最近的骨架点作为起点，运行 Dijkstra 得到排序坐标。分箱取三维中位点，再拟合曲线。桥接是几何插值假设，不是缺口中存在实测点的证据。
+
+### 6.3 弧长与点投影
+
+沿样条取 400 点，按折线累计长度重新参数化并拟合 P-spline，属于数值近似弧长。投影先从 300 个曲线采样点找初值，再作 5 次牛顿更新：
+
+$$s\leftarrow s-\frac{(C(s)-p)\cdot C'(s)}{C'(s)\cdot C'(s)+(C(s)-p)\cdot C''(s)}.$$
+
+单步截到 $\pm0.05L$，参数截到 $[0,L]$；有限迭代不保证任意曲线上的全局最近点。主曲线步骤作两轮“投影—弧长分箱中位点—样条—弧长重参数化”。
+
+### 6.4 端点与范围回退
+
+初始两端暂沿切线延伸 15%，用全体点重投影的 0.5%–99.5% 参数分位数确定细化区间，减轻骨架收缩。这不是最终补全长度。
+
+若参考曲线在点云第一主轴上的范围不足点云 1%–99% 分位跨度的 95%，或沿该轴的累计回退超过跨度的 8%，改用 32 个主轴截面中位点拟合。主轴回退适用于沿该轴没有真实折返的叶片，是工程策略。
+
+## 7. 双反射标架与法向对齐
+
+单位切线为 $T=C'/\|C'\|$。定义反射 $R_a(x)=x-2a(a\cdot x)/(a\cdot a)$，先用 $a=P_{i+1}-P_i$ 反射当前参考法向和切线，得到 $n_L,t_L$；再用 $b=T_{i+1}-t_L$ 作第二次反射得到下一法向。退化反射向量采用正交投影回退。横向轴由 $B=N\times T$ 给出。方法见 [Wang et al. (2008)](https://i.cs.hku.hk/GraphicsGroup/publications/pdf/Computation%20of%20rotation%20minimizing%20frames.pdf)。
+
+沿弧长设置 10–30 个窗口，将扫描法向投影到切线的正交平面，取散度矩阵主方向，消除正负号影响。没有扫描法向时以局部截面协方差方向回退。相对参考标架的滚转角用：
+
+$$\phi_{raw}=\tfrac12\operatorname{unwrap}(2\operatorname{atan2}(\sin\phi,\cos\phi)).$$
+
+三点中值滤波后，用最多 8 个基函数、$\lambda\in[10^{-2},10^4]$ 的 P-spline 平滑，再旋转参考标架。初始 RMF 是最小旋转参考，加入测量滚转后并非严格零滚转标架。查询时线性插值后再归一化、正交化。
+
+## 8. 联合几何优化实际计算什么
+
+37 维状态包含：横向位移 8、法向位移 8、滚转 6、一次/二次横向拱度各 5、叶宽形状参数 5。最多取 1200 个沿弧长分层点，以 22 箱提取叶缘锚点。
+
+$$C_\Theta=C_0+\delta_b(u)b_0+\delta_n(u)n_0,\quad q_\Theta(u,v)=a_1(u)v+a_2(u)v^2.$$
+
+残差包括：
+
+1. 法向高度 $[h_i-q_\Theta(u_i,v_i)]/w_{scale}$，点级权重 $1/\sqrt N$。
+2. 预测单位法向与扫描法向叉积长度，权重 $0.35/\sqrt N$。预测法向使用拱度解析偏导与固定参考切线，是局部近似，未包含完整标架导数。
+3. 左右越界、较完整侧对齐和 `tanh` 饱和双侧平衡项，降低单侧大缺口对中脉的牵引。
+4. 中脉二阶差分、位移锚定、滚转平滑、拱度与叶形先验项。
+
+采用 `least_squares(loss='soft_l1', f_scale=0.08, max_nfev=65)`；标量鲁棒损失为 $\rho(z)=2(\sqrt{1+z}-1)$。优化器 Jacobian 为 SciPy 默认有限差分，不是自动微分或完整解析 Jacobian。
+
+当前最终只提取优化后的两类中脉位移，重新拟合曲线、投影并估计标架；最终叶形和 TPS 继续在后续步骤重算。优化中的滚转、拱度、叶宽是辅助状态，不应称为最终曲面直接沿用的全部联合参数。
+
+## 9. 宽度剖面、形态先验和 BIC
+
+### 9.1 局部物理坐标
+
+$$r_i=(p_i-C(s_i))\cdot b(s_i),\quad h_i=(p_i-C(s_i))\cdot n(s_i).$$
+
+沿参考弧长分 32 箱，至少六点才使用。取 $w_L=\max(0,-Q_{0.02}(r))$、$w_R=\max(0,Q_{0.98}(r))$。一般 $w_{obs}=w_L+w_R$；两侧差超过较大侧的 75% 时，用 $2\max(w_L,w_R)$ 估计缺失侧。
+
+### 9.2 分段幂函数
+
+令 $u=s/L$，最宽位置为 $x_m$：
+
+$$w_D(s)=\begin{cases}w_{max}[1-(1-k_{lig})((x_m-u)/x_m)^{c_2}],&u\le x_m,\\w_{max}[1-((u-x_m)/(1-x_m))^{c_1}],&u>x_m.\end{cases}$$
+
+$c_1,c_2>1$ 时最宽处一阶连续，叶尖宽度为零。该参数化借鉴 [Dornbusch et al. (2011)](https://pmc.ncbi.nlm.nih.gov/articles/PMC3077976/) 的基部/尖部分段建模思路；本实现的先验和参数边界不作为对论文逐参数复现的声明。轮廓解析面积系数为：
+
+$$\alpha=x_m\left(1-\frac{1-k_{lig}}{c_2+1}\right)+(1-x_m)\frac{c_1}{c_1+1}.$$
+
+默认参数均值 $(x_m,k_{lig},c_1,c_2)=(0.36,0.62,1.85,2.00)$，标准差 $(0.10,0.16,0.45,0.55)$，属于当前工程默认值，不声称每个数都是文献直接测量值。
+
+### 9.3 数据集先验收缩
+
+至少 800 个原始点、末端宽度比例小于 0.22 的候选完整叶先禁止延长拟合。再保留 $0.20<x_m<0.55$、$1.2<c_1<3.2$、$0.65\le\alpha\le0.82$ 的结果。少于三个有效样本用默认先验，否则以 $\omega=n/(n+10)$ 将样本中位数收缩到默认均值；标准差类似收缩并保留下限。这是经验先验步骤，不是独立的大样本物种估计。
+
+### 9.4 是否延长叶尖
+
+先拟合 $M_0$：固定 $L=L_{obs}$ 的五参数模型，`soft_l1`、`f_scale=0.12`、`max_nfev=400`，先验残差权重 0.08。若允许补全且末端宽度比 $t>0.22$，由先验反演：
+
+$$u_{end}=\mu_x+(1-\mu_x)\max(1-\min(t,0.85),0.05)^{1/\mu_{c1}},$$
+$$L_{prior}=\operatorname{clip}\left(\frac{L_{obs}}{\max(u_{end},0.65)},L_{obs},1.45L_{obs}\right).$$
+
+$M_1$ 自由长度上限为 $\min(1.45L_{obs},1.15L_{prior})$，同时估计长度和五个形状参数，先验权重提高至 0.45。使用归一化宽度数据残差：
+
+$$BIC=n\log(RSS/n)+k\log n.$$
+
+只有 $BIC_{M_1}+4<BIC_{M_0}$ 才延长。它是模型选择指标，不是缺失末端真实长度的直接观测。
+
+## 10. 中脉外推与实测宽度支持
+
+### 10.1 中脉外推
+
+拟合最后 25% 参考曲线的俯仰角 $\theta=\arcsin(t_z)$ 对弧长的斜率，取 $\kappa\leftarrow\min(\kappa,0)$；保持末端平均水平方位：
+
+$$\theta(\delta)=\max[-0.48\pi,\theta_{end}+\kappa\delta e^{-0.5\delta/L_{obs}}].$$
+
+离散积分单位切线，连接观测与外推点重新拟合曲线，并延续参考标架。指数阻尼、向下限制是本项目工程假设，不是某篇玉米中脉论文公式的逐式复现。
+
+### 10.2 有效宽度
+
+为避免全局轮廓裁掉实测叶缘，每箱计算：
+
+$$e_j=\max[2\max(w_{L,j},w_{R,j})-w_D(s_j),0],\quad w_{eff}(s)=w_D(s)+e(s).$$
+
+PCHIP 连接修正值，起点延用首箱值，观测末端补零，观测区外修正为零。`axis`、`linear` 候选先用最多 8 基函数、$\lambda\in[0.1,100]$ 平滑修正轮廓，减少锯齿。这仍不能唯一恢复两侧同时缺失的形状。
+
+## 11. 分箱中位 TPS 与谱 GML
+
+训练坐标是 $u=s/L_{obs}$、$v=\operatorname{clip}(2r/w_{eff}(s),-1.25,1.25)$。以 `(round(40u), round(12v))` 分箱，各箱取 $u,v,h$ 中位数；默认最多 350 个代表点，超过时按种子 2026 抽样。
+
+$$q(x)=\sum_j a_j\phi(\|x-x_j\|)+b_0+b_1u+b_2v,\quad \phi(r)=r^2\log r,\quad\phi(0)=0.$$
+
+构造核矩阵 $K$、多项式矩阵 $P=[1,u,v]$。对 $P$ 完整 QR 分解，以 $Q_2$ 表示多项式空间正交补：
+
+$$Q_2^TKQ_2=U\operatorname{diag}(\eta_j)U^T,\quad z=U^TQ_2^Th.$$
+
+在 $\lambda\in[10^{-7},10^2]$ 上最小化：
+
+$$GML(\lambda)=\left(\sum_j\frac{z_j^2}{\eta_j+\lambda}\right)\exp\left[\frac1{m-3}\sum_j\log(\eta_j+\lambda)\right].$$
+
+$$a=Q_2U[z/(\eta+\lambda)],\quad b=R_1^{-1}Q_1^T(h-Ka-\lambda a).$$
+
+`ThinPlateSplineGCV` 为兼容保留的类名，实际选择准则为 GML。GML/GCV 是不同准则，均不保证永不欠平滑或过拟合，参见 [Wahba (1985)](https://doi.org/10.1214/aos/1176349743)。
+
+### 11.1 叶尖高度闭合
+
+仅使宽度为零不够，横向 TPS 高度也必须收敛到一点。令 $q_0(s)=q(s,0)$：
+
+$$a(s)=\operatorname{clip}\left(\frac{w_{eff}(s)}{0.1w_{max}},0,1\right),\quad g(a)=a^2(3-2a),$$
+$$q_{tip}(s,v)=q_0(s)+g(a(s))[q(s,v)-q_0(s)].$$
+
+从而 $S(L,v)=S(L,0)$。外推段再按 $w(s)/w(L_{obs})$ 衰减法向残差。NPZ 保存 `apex_taper` 标志；旧文件缺少该标志时使用旧规则，保证审计读取旧文件时不会悄悄改变其几何。
+
+## 12. 候选曲面、折叠筛选与选优
+
+每片叶构造五种候选，不按植株名或叶号硬编码：
+
+| 模式 | 参考曲线 | 联合位移 |
+|---|---|---|
+| `joint` | 初始化后联合几何细化 | 使用 |
+| `initial` | 初始参考曲线 | 不使用 |
+| `smoothed` | 初始曲线取 80 点，以 12 基函数、$\lambda\in[0.1,100]$ 再平滑 | 不使用 |
+| `axis` | 第一主轴 24 箱中位点，8 基函数、$\lambda\in[1,10^4]$ 强平滑 | 不使用 |
+| `linear` | 保留点第一主轴范围上的直线参考；纵向弯曲由高度场表示 | 不使用 |
+
+### 12.1 局部翻转
+
+用 241×61 参数网格，$s/L\in[0.01,0.99]$、$v\in[-0.98,0.98]$，以二阶精度差分计算：
+
+$$J_n=(\partial_s S\times\partial_v S)\cdot n(s),\quad c_n=J_n/\|\partial_s S\times\partial_v S\|.$$
+
+$c_n<-10^{-6}$ 为反向采样。先排除有反向采样的候选，再对剩余候选使用相同保留输入点、相同 220×61 曲面采样，计算点到面的近邻距离：
+
+$$d_i=\min_j\|p_i-S_j\|_2.$$
+
+仅用这一方向会偏好无观测支撑的宽大叶面。另在 90×25 网格的观测参数范围 $s_f\le L_{obs}$ 内，对每个三角形重心 $c_f$ 计算到保留点的最近距离 $e_f=\min_i\|c_f-p_i\|_2$，以三角形面积 $A_f$ 加权：
+
+$$D_{surf}=\frac{\sum_{f:s_f\le L_{obs}}A_f e_f}{\sum_{f:s_f\le L_{obs}}A_f},\qquad score=Q_{0.95}(d)+0.5Q_{0.50}(d)+D_{surf}.$$
+
+分数最小者胜出。观测范围外的补尖没有点云，故不进入该支持度项。三个系数是本项目的工程选择；这仍是扫描内选优，不是独立测试误差；采样 Jacobian 也不是全局三角形自交的数学证明。
+
+若最优候选的保留点 P95 仍大于 $3d_{sp}$，再把代表点上限从 350 提高到 700，重复五候选比较。只有加密结果的 P95、中位距离、观测段面积加权反向距离都不增加才接受；否则保留原结果。通过 `--max-tps-points`、`--refine-tps-points` 控制两档上限；后者不大于前者时关闭加密。几何和连续性检查仍必须通过，候选全部失败或最终检查失败时终止该叶的导出。
+
+### 12.2 断点、网格与贴合复查
+
+`quality.py` 检查以下项目：
+
+- 有限顶点、正面积三角形、一个网格连通分量、一个边界连通环、无非流形边。
+- 41 个横向参数对应的叶尖位置必须收敛，容差 $\max(10^{-8},10^{-7}L)$。
+- 在曲线节点、标架位置、宽度节点和观测/外推交界，计算两侧距离；步长从 $10^{-6}L$ 缩为其 1% 后，细/粗距离最大比应小于 0.1。位置连续时距离应随步长收缩，真正跳变则不会；不要求所有拼接高阶导数连续。
+- 保留点 P95 超过 $\max(6d_{sp},0.15w_{max,eff})$ 标记为贴合异常。这是工程告警线，不是统计置信区间。原始点与保留点的距离均保存，避免只展示去噪后的有利数字。
+- 保存观测段面积加权反向距离，核查扩大叶面来吸收点云的假改善；该项是选优指标，不宣称已证明未观测区的真实形状。
+
+## 13. 网格与观测支持分类
+
+默认纵向 90、横向 25；前 89 行作规则三角化，最后接唯一叶尖顶点构成扇形，避免零宽末端重复点。对观测参数 $(s_i,r_i)$ 建 Delaunay 凸包，并使用三维近邻半径：
+
+$$R_{sup}=\max\{2.5d_{sp},0.75\max(\Delta s,\Delta r)\}.$$
+
+凸包内且靠近观测点为 `observed`；凸包内但缺少近邻支持为 `interpolated`；凸包外或超出观测范围为 `extrapolated`。面取三个顶点中最保守标签。这是几何支持分类，不是真值标签。
+
+## 14. 表型计算和文件内容
+
+$$A_f=\tfrac12\|(P_2-P_1)\times(P_3-P_1)\|_2,\quad A=\sum_f A_f.$$
+
+各支持区比例为对应面面积除以总面积，补全比例为插值加外推比例。最大宽为有效横向宽度的最大采样值，不是拱曲截面的测地宽度。
+
+最终中心轨迹 $M(s)=S(s,0)$ 取 500 个参数位置并插入观测终点，累计：
+
+$$\ell_k=\sum_{j=1}^k\|M(s_j)-M(s_{j-1})\|_2.$$
+
+`observed_length`、`completed_length` 记录观测段、全段中心轨迹的数值弧长，`tip_completion_length` 为差；`parameter_observed_length`、`parameter_completed_length` 另存参考坐标跨度。叶基倾角为最终中心轨迹起始切向与 Z 轴的夹角。
+
+`form_factor_alpha` 是第 9 节先验轮廓的解析系数，不是最终曲面面积除以长宽的系数。`fit_rmse` 是按参考曲线投影坐标回代曲面的 RMS，不等于全局最近曲面距离；审计另列采样最近距离。
+
+NPZ 保存样条、标架、叶形、TPS、局部宽度修正及闭合版本；JSON 保存表型、候选比较；PLY/OBJ 保存网格；HTML/PNG 用于查看。`outputs/maize_v2` 是兼容目录名，不表示使用旧版算法。
+
+## 15. 重建与复现
+
+```bash
+python scripts/run_tests.py
+python scripts/run.py --output outputs/maize_checked
+python scripts/validate_fit.py --baseline outputs/previous --candidate outputs/maize_checked --output outputs/maize_checked/fit_comparison.json
+python scripts/visualize.py --root outputs/maize_checked
+```
+
+先归档旧结果，再生成新目录，检查通过后更新默认展示。审计应保留输入/模型/源码哈希、网格参数和逐叶记录。原始数据与生成大文件按 `.gitignore` 保留本地，不提交源代码仓库。
+
+`scripts/validate_holdout.py` 将真实点云分别遮挡孔洞、叶缘和末端，再评估留出点。完整输入的参考面仍由算法拟合，不能作为独立测量的真叶长或真面积；旧版本的留出数字也不能当成本版验证结果。
+
+## 16. 方法来源与工程改动的区分
+
+| 来源 | 使用思想 | 项目自行规定的部分 |
+|---|---|---|
+| [PCL SOR](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html) | 邻域统计去噪 | 分断片、MAD、保留比例和簇阈值 |
+| [Eilers & Marx, 1996](https://doi.org/10.1214/ss/1038425655) | B-spline 差分惩罚 | 盒约束、基数和搜索区间 |
+| [Huang et al., 2013](https://doi.org/10.1145/2461912.2461913) | L1 吸引与方向斥力 | 单叶采样、带宽、迭代上限、范围回退和桥接 |
+| [Wang et al., 2008](https://doi.org/10.1145/1330511.1330513) | 双反射参考标架 | 扫描法向滚转和插值 |
+| [Dornbusch et al., 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC3077976/) | 基段/尖段叶形参数化 | 当前幂函数、先验、BIC、局部宽度修正 |
+| [Wahba, 1985](https://doi.org/10.1214/aos/1176349743) | GML 选参 | 中位代表点、谱实现、搜索区间 |
+
+主轴/直线参考、候选选择、叶尖高度闭合、断点检查和指数阻尼外推均是工程实现，应与文献基础区分。程序没有基于论文名称自动获得拓扑正确或生物真实性保证。
+
+## 17. 本次全量复查记录（2026-11-24）
+
+在 14 株、90 片已分割叶上，使用同一原始点集比较更新前后的生成模型。逐叶输入与源码 SHA-256、参数、距离和导出一致性见 [验证记录](validation/leaf_quality_2026-11-24.json)。这些数字是扫描内重建检查；未观测区域没有独立真值。
+
+| 检查项 | 更新前 | 更新后 |
+|---|---:|---:|
+| 采样局部反向的叶片数 | 31 | 0 |
+| 叶尖未闭合的叶片数 | 63 | 0 |
+| 本文网格、连续性与贴合联合检查通过数 | 16 | 90 |
+| 保留点到曲面 P95 的逐叶中位数 | 0.012182 | 0.010582 |
+| 观测段曲面到点云面积加权距离的逐叶中位数 | 0.006913 | 0.006236 |
+
+90 片中，71 片保留点 P95 下降，67 片反向支持距离下降；没有叶片的最大宽度超过其旧模型的两倍。`1-1-2` 叶 2 的保留点 P95 为 0.009150（旧 0.009881）；`2-2-2` 叶 4 为 0.010693（旧 0.017046）。全部 90 个单叶 PLY 与对应连续模型的最大坐标差为 $5.0\times10^{-9}$，整株 PLY 与单叶拼接顶点一致。局部采样和上述工程阈值仍不能证明无全局自交，也不能验证无观测区域的真实叶形。
