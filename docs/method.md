@@ -1,42 +1,43 @@
-# 核心建模算法说明
+# 数学模型与理论依据（V2.0）
 
-## 1. 数据读取
+本项目的所有核心建模与补全步骤均建立在植物形态学、微分几何与数值分析的经典文献之上，不使用固定比例的硬编码叶尖延伸或手工平滑阈值。
 
-递归匹配同名 TXT（以 `//X Y Z` 开头）与 CSV 文件：
-- 从 CSV 读取坐标 `X, Y, Z` 与语义编号 `semantic`（`0` 为茎秆，正整数为叶片）。
-- 从 TXT 读取对应点的 `R, G, B` 颜色用于点云导出。
+## 1. 茎秆与中脉骨架：P-spline + GCV + Principal Curve
 
-## 2. 茎秆中心线
+- **参考文献**：Eilers & Marx (1996, *Statistical Science*)；Wahba (1990, *Spline Models for Observational Data*)；Hastie & Stuetzle (1989, *JASA*)；Piegl & Tiller (1997, *The NURBS Book*)。
+- **方法**：
+  1. 以 kNN 无向图 + Dijkstra 最短路径从茎秆附着点建立叶片内在测地排序，获得初始中脉。
+  2. 采用带二阶差分惩罚的 B-spline（P-spline），惩罚权重 $\lambda$ 由**广义交叉验证（GCV）**自动优化：
+     $$\mathrm{GCV}(\lambda) = \frac{\frac{1}{n}\|(I - H(\lambda))Y\|_F^2}{\left(1 - \frac{1}{n}\mathrm{tr}(H(\lambda))\right)^2}$$
+  3. 对曲线做真实弧长重参数化 $s \in [0, L_{\mathrm{obs}}]$，并用牛顿迭代做连续精确正交最近点投影（Piegl & Tiller, 1997），执行主曲线（Principal Curve）迭代细化中脉 $C(s)$。
 
-以 Z 为竖直方向对茎秆点等距分箱取三维中位数，拟合带二阶差分惩罚和有界控制点的三次 B-spline（最多 14 个控制点，端点权重 3，惩罚权重 0.05），输出 160 个采样点及样条系数。
+## 2. 无扭转局部标架：Double Reflection RMF + 点云法向对齐
 
-## 3. 叶片中脉
+- **参考文献**：Bishop (1975, *Amer. Math. Monthly*)；Wang et al. (2008, *ACM TOG*, "Computation of Rotation Minimizing Frames")。
+- **方法**：
+  1. 沿中脉弧长采样点用**双反射法（Double Reflection）**计算严格无扭转的参考最小旋转标架 $(T_0(s), B_0(s), N_0(s))$。
+  2. 直接利用点云自带单位法向量 `(Nx, Ny, Nz)` 投影到切线正交平面，求局部叶面法向并转换为相对 RMF 的连续滚转角 $\phi(s)$，用 GCV P-spline 平滑后旋转参考标架得到正交标架 $(t(s), b(s), n(s))$，避免横截面 SVD 导致的非物理翻转与扭转。
 
-1. 去重并以第 6 近邻距离过滤孤立点。
-2. 抽取最多 4500 点构建 14 近邻无向图；若图不连通则按最近分量距离桥接。
-3. 以距离茎秆中心线最近的点为叶根，用 Dijkstra 最短路径距离作为初始纵向排序。
-4. 沿纵向分 10–36 箱取三维中位数，按节点弦长重参数化后拟合有界惩罚三次 B-spline 得到几何中脉 $C(u)$。
+## 3. 叶宽包络与缺失叶缘/叶尖补全：Dornbusch (2011) + Prévot (1991)
 
-## 4. 移动标架、宽度包络与参数曲面
+- **参考文献**：
+  - Dornbusch, Watt, Baccar, Fournier & Andrieu (2011, *Annals of Botany* 107(5): 865–873)。
+  - Stewart & Dwyer (1999, *Crop Science* 39: 422–427)；Montgomery (1911)。
+  - Prévot, Aries & Monestiez (1991, *Agronomie* 11(6): 491–503)；Fournier & Andrieu (1998, ADEL-Maize)。
+- **分段幂函数叶宽模型**（归一化弧长 $u = s / L \in [0, 1]$）：
+  $$w(s) = \begin{cases} w_{\max}\left[1 - (1 - k_{\mathrm{lig}})\left(\dfrac{x_m - u}{x_m}\right)^{c_2}\right], & 0 \le u \le x_m \\[10pt] w_{\max}\left[1 - \left(\dfrac{u - x_m}{1 - x_m}\right)^{c_1}\right], & x_m < u \le 1 \end{cases}$$
+  其精确解析面积形状系数为：
+  $$\alpha = \frac{1}{L\,w_{\max}}\int_0^L w(s)\,ds = x_m\left(1 - \frac{1 - k_{\mathrm{lig}}}{c_2 + 1}\right) + (1 - x_m)\frac{c_1}{c_1 + 1}$$
+- **缺失推断**：
+  1. 独立提取左右半宽包络；仅当一侧存在严重缺失（超过 75% 宽度缺损）时以完整侧包络修正宽度，避免单侧缺失拉偏。
+  2. 先从当前批次数据集中近完整叶片以 **Empirical Bayes 收缩**标定玉米物种先验 $(x_m, k_{\mathrm{lig}}, c_1, c_2)$，再通过 MAP 鲁棒非线性最小二乘（soft-L1）分别拟合完整叶模型 $M_0$（$L = L_{\mathrm{obs}}$）与截断叶模型 $M_1$（$L \ge L_{\mathrm{obs}}$），按 **BIC 准则**（Schwarz, 1978；Kass & Raftery, 1995，$\Delta\mathrm{BIC} > 4$）决定是否进行叶尖延伸。
+  3. 当判定叶尖截断（$L > L_{\mathrm{obs}}$）时，依据 Prévot (1991) 垂直叶面倾角演化模型拟合末端俯仰角曲率并按弧长光滑外推叶尖段中脉，同步以 RMF 延续标架。
 
-将点投影到中脉采样点得到纵坐标 $u$，沿中脉 24 个位置在切线正交平面内做局部 SVD 获取横向主方向，符号对齐并 Gaussian 平滑后拟合引导样条 $B(u)$：
+## 4. 叶面起伏与孔洞补全：Duchon TPS + Wahba GML/REML 自动选参
 
-$$
-t(u) = \mathrm{normalize}(C'(u)), \quad
-b(u) = \mathrm{normalize}(B(u) - (B(u)\cdot t(u))t(u)), \quad
-n(u) = t(u) \times b(u)
-$$
-
-沿 36 个位置取横向绝对距离的 96% 分位数，结合局部最大滤波与 Gaussian 平滑并按 `edge_expansion` 扩张，拟合三次宽度样条 $w(u)$。当终端宽度大于最大宽度的 18% 时，在 $u \in [1, 1 + \mathrm{tip\_extension}]$ 使用三次 Hermite 函数平滑收敛到最小宽度。
-
-参数曲面定义为：
-
-$$
-S(u, v) = C(u) + \frac{v\, w_\mathrm{eff}(u)}{2} b(u) + q(u, v) n(u), \quad v \in [-1, 1]
-$$
-
-法向残差 $q(u, v)$ 由全局薄板样条 RBF（`thin_plate_spline`, `degree=1`, 最多 350 个空间分箱代表点）拟合，并以 `cap * tanh(pred / cap)` 限幅、在叶尖按宽度衰减。
-
-## 5. 网格与区域划分
-
-在规则网格（默认 $90 \times 25$）上求值生成三角网格，并在参数物理平面 $(u \cdot L, \text{lateral})$ 内通过实测点凸包与支持半径将顶点划分为 `observed` (0)、`interpolated` (1)、`extrapolated` (2)，三角面取三顶点中的最大值标签。
+- **参考文献**：Duchon (1977)；Wahba (1985, *Annals of Statistics* 13(4): 1378–1402；1990)；Wood (2011, *JRSS-B*)。
+- **方法**：在归一化参数域 $(u, v)$ 上用二维薄板样条（Thin-Plate Spline，核函数 $\phi(r) = r^2 \ln r$）最小化薄弹性板弯曲能量：
+  $$\min_q \sum_{i=1}^m \bigl(q(u_i, v_i) - h_i\bigr)^2 + \lambda \iint \bigl(q_{uu}^2 + 2q_{uv}^2 + q_{vv}^2\bigr)\,du\,dv$$
+  通过多项式正交补空间 QR + 谱分解高效优化**广义最大似然（GML / REML）准则**自动求取最优平滑参数 $\lambda^*$（避免有限样本 GCV 过拟合）。最终连续参数曲面为：
+  $$S(s, v) = C(s) + \frac{v\,w(s)}{2} b(s) + q(s, v) n(s), \quad s \in [0, L],\; v \in [-1, 1]$$
+  在叶尖 $s = L$（$w(L) = 0$）处采用**单顶点扇形三角化**自然闭合，消除退化零面积三角面。

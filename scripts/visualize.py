@@ -10,24 +10,8 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import numpy as np
-from maize_leaf_v1.data import discover, load_pair
-from maize_leaf_v1.model import COLORS, REGIONS, LeafModel, faces_grid
-
-
-def read_ply(path):
-    with open(path, encoding="ascii") as f:
-        nv, nf = 0, 0
-        for line in f:
-            s = line.strip()
-            if s.startswith("element vertex"):
-                nv = int(s.split()[-1])
-            elif s.startswith("element face"):
-                nf = int(s.split()[-1])
-            elif s == "end_header":
-                break
-        verts = np.loadtxt(f, max_rows=nv) if nv else np.empty((0, 6))
-        faces = np.loadtxt(f, max_rows=nf, dtype=int) if nf else np.empty((0, 4), dtype=int)
-    return np.atleast_2d(verts), np.atleast_2d(faces) if nf else np.empty((0, 4), dtype=int)
+from maize_leaf.io import discover, load_pair, read_ply
+from maize_leaf.surface import COLORS, REGIONS, MaizeLeafModel, leaf_mesh_grid
 
 
 def load_leaf_output(leaves_dir, leaf_id):
@@ -58,22 +42,18 @@ def load_from_outputs(root, plant=None, leaf=None):
         return dict(title=f"Plant {plant} / Leaf {leaf}", stem=None, leaves=[load_leaf_output(leaves_dir, leaf)])
     stem = np.asarray(json.loads((plant_dir / "stem_centerline.json").read_text(encoding="utf-8"))["xyz"])
     leaf_ids = sorted(int(p.name.split("_")[1]) for p in leaves_dir.glob("leaf_*_surface.ply"))
-    leaves = [load_leaf_output(leaves_dir, lid) for lid in leaf_ids]
-    return dict(title=f"Plant {plant} ({len(leaves)} leaves)", stem=stem, leaves=leaves)
+    return dict(title=f"Plant {plant} ({len(leaf_ids)} leaves)", stem=stem, leaves=[load_leaf_output(leaves_dir, lid) for lid in leaf_ids])
 
 
 def load_from_model(model_path, nu, nv):
-    m = LeafModel.load(model_path)
-    us, vs = np.linspace(0, 1 + m.extension, nu), np.linspace(-1, 1, nv)
-    uu, vv = np.meshgrid(us, vs, indexing="ij")
-    uv = np.column_stack([uu.ravel(), vv.ravel()])
-    verts = m.evaluate(uv)
-    faces = faces_grid(nu, nv)
-    freg = np.where((uv[:, 0] > 1 + 1e-10)[faces].any(axis=1), 2, 0)
+    m = MaizeLeafModel.load(model_path)
+    sv, faces = leaf_mesh_grid(m.blade.length, nu, nv)
+    verts = m.evaluate(sv)
+    freg = np.where((sv[:, 0] > m.length_obs + 1e-8)[faces].any(axis=1), 2, 0)
     return dict(
         title=Path(model_path).stem,
         stem=None,
-        leaves=[dict(leaf_id=0, points=None, rgb=None, vertices=verts, faces=faces, face_regions=freg, midrib=m.center(us))],
+        leaves=[dict(leaf_id=0, points=None, rgb=None, vertices=verts, faces=faces, face_regions=freg, midrib=m.midrib(np.linspace(0.0, m.blade.length, nu)))],
     )
 
 
@@ -111,15 +91,12 @@ def show_plotly(scene, args):
         if not args.no_points and item["points"] is not None:
             pts, rgb = sample_points(item["points"], item["rgb"], limit)
             colors = [f"rgb({r},{g},{b})" for r, g, b in rgb] if rgb is not None else "#334c42"
-            fig.add_trace(
-                go.Scatter3d(
-                    x=pts[:, 0], y=pts[:, 1], z=pts[:, 2], mode="markers", name=prefix + "Points",
-                    marker=dict(size=2, color=colors, opacity=0.7),
-                )
-            )
+            fig.add_trace(go.Scatter3d(x=pts[:, 0], y=pts[:, 1], z=pts[:, 2], mode="markers", name=prefix + "Points",
+                                       marker=dict(size=2, color=colors, opacity=0.7)))
         if not args.no_midrib and item["midrib"] is not None:
             m = item["midrib"]
-            fig.add_trace(go.Scatter3d(x=m[:, 0], y=m[:, 1], z=m[:, 2], mode="lines", name=prefix + "Midrib", line=dict(color="#175eb4", width=4)))
+            fig.add_trace(go.Scatter3d(x=m[:, 0], y=m[:, 1], z=m[:, 2], mode="lines", name=prefix + "Midrib",
+                                       line=dict(color="#175eb4", width=4)))
         if not args.no_surface and item["vertices"] is not None:
             v, f, fr = item["vertices"], item["faces"], item["face_regions"]
             for k, name in REGIONS.items():
@@ -127,17 +104,11 @@ def show_plotly(scene, args):
                 if not len(fk):
                     continue
                 color = "rgb(" + ",".join(str(x) for x in COLORS[k]) + ")"
-                fig.add_trace(
-                    go.Mesh3d(
-                        x=v[:, 0], y=v[:, 1], z=v[:, 2], i=fk[:, 0], j=fk[:, 1], k=fk[:, 2],
-                        color=color, name=prefix + name, showlegend=True, opacity=0.88,
-                    )
-                )
+                fig.add_trace(go.Mesh3d(x=v[:, 0], y=v[:, 1], z=v[:, 2], i=fk[:, 0], j=fk[:, 1], k=fk[:, 2],
+                                        color=color, name=prefix + name, showlegend=True, opacity=0.88))
 
     fig.update_layout(
-        title=scene["title"],
-        height=760,
-        margin=dict(l=0, r=0, t=40, b=0),
+        title=scene["title"], height=760, margin=dict(l=0, r=0, t=40, b=0),
         scene=dict(aspectmode="data", xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
         legend=dict(orientation="h", y=1.02, x=0),
     )
@@ -175,7 +146,8 @@ def show_mpl(scene, args):
             all_xyz.append(pts)
         if not args.no_surface and item["vertices"] is not None:
             v = item["vertices"]
-            coll = Poly3DCollection(v[item["faces"]], facecolors=COLORS[item["face_regions"]] / 255.0, edgecolor="none", alpha=0.85, zsort="average")
+            coll = Poly3DCollection(v[item["faces"]], facecolors=COLORS[item["face_regions"]] / 255.0,
+                                    edgecolor="none", alpha=0.85, zsort="average")
             ax.add_collection3d(coll)
             all_xyz.append(v)
         if not args.no_midrib and item["midrib"] is not None:
@@ -202,13 +174,13 @@ def show_mpl(scene, args):
 
 def main():
     p = argparse.ArgumentParser(description="Visualize maize 3D leaf models and point clouds")
-    p.add_argument("--root", type=Path, default=ROOT / "outputs/leaf_modeling_v1_0", help="Modeling output directory")
-    p.add_argument("--input-root", type=Path, help="Raw TXT/CSV input directory")
-    p.add_argument("--model", type=Path, help="Single leaf *_model.npz file")
-    p.add_argument("--plant", help="Plant name, e.g. 1-1-2")
-    p.add_argument("--leaf", type=int, help="Leaf semantic ID")
+    p.add_argument("--root", type=Path, default=ROOT / "outputs/maize_v2")
+    p.add_argument("--input-root", type=Path)
+    p.add_argument("--model", type=Path)
+    p.add_argument("--plant")
+    p.add_argument("--leaf", type=int)
     p.add_argument("--backend", choices=("plotly", "mpl"), default="plotly")
-    p.add_argument("--save", type=Path, help="Save to HTML (plotly) or PNG (mpl) instead of opening window")
+    p.add_argument("--save", type=Path)
     p.add_argument("--nu", type=int, default=90)
     p.add_argument("--nv", type=int, default=25)
     p.add_argument("--elev", type=float, default=22)
