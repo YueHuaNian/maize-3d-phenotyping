@@ -14,12 +14,12 @@ pip install -r requirements.txt
 直接使用 Python 脚本运行：
 
 ```bash
-# 全部植株
-python scripts/run_leaf_modeling.py --input-root <数据目录>
+# 全部植株（默认读取 dataset/）
+python scripts/run_leaf_modeling.py
 
 # 指定单株 / 单叶
-python scripts/run_leaf_modeling.py --input-root <数据目录> --plant 1-1-2
-python scripts/run_leaf_modeling.py --input-root <数据目录> --plant 1-1-2 --leaf 1 --output outputs/single_leaf
+python scripts/run_leaf_modeling.py --input-root dataset --plant 1-1-2
+python scripts/run_leaf_modeling.py --input-root dataset --plant 1-1-2 --leaf 1 --output outputs/single_leaf
 
 # 运行测试与合成补全示例
 python scripts/test_v1.py
@@ -36,7 +36,7 @@ python scripts/visualize.py --model outputs/leaf_modeling_v1_0/plant_1-1-2/leave
 
 | 参数 | 默认 | 含义 |
 |---|---:|---|
-| `--input-root` | 必填 | 包含成对 TXT 和 CSV 的目录 |
+| `--input-root` | `dataset` | 包含成对 TXT 和 CSV 的目录 |
 | `--output` | `outputs/leaf_modeling_v1_0` | 输出目录 |
 | `--plant` | 全部 | TXT/CSV 文件名主干 |
 | `--leaf` | 该株全部 | 原始正整数叶片编号 |

@@ -6,7 +6,7 @@ from .pipeline import run
 
 def main():
     p = argparse.ArgumentParser(description="Maize leaf 3D modeling")
-    p.add_argument("--input-root", required=True, type=Path)
+    p.add_argument("--input-root", type=Path, default=Path("dataset"))
     p.add_argument("--output", type=Path, default=Path("outputs/leaf_modeling_v1_0"))
     p.add_argument("--plant", help="File stem, e.g. 1-1-2")
     p.add_argument("--leaf", type=int, help="Leaf semantic ID")
