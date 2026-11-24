@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import numpy as np
 from scipy.spatial import cKDTree
-from maize_leaf.geometry import double_reflection_rmf, fit_pspline_gcv, project_points_to_curve, reparameterize_arc_length
+from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
 from maize_leaf.morphology import DornbuschBlade, MaizeShapePrior, fit_dornbusch_blade
 from maize_leaf.pipeline import run
 from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, triangle_areas
@@ -102,9 +102,11 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertTrue(np.all(triangle_areas(res["vertices"], res["faces"]) > 0))
         # Tip length should be extended beyond truncated observation.
         self.assertGreater(res["traits"]["completed_length"], res["traits"]["observed_length"])
-        # Hole reconstruction accuracy.
+        # Hole & margin reconstruction accuracy.
         err_hole = cKDTree(res["vertices"]).query(xyz[hole])[0]
+        err_margin = cKDTree(res["vertices"]).query(xyz[margin])[0]
         self.assertLess(float(np.median(err_hole)), 0.008)
+        self.assertLess(float(np.median(err_margin)), 0.012)
         # Model round-trip.
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "leaf.npz"
@@ -112,6 +114,19 @@ class MaizeLeafV2Tests(unittest.TestCase):
             reloaded = MaizeLeafModel.load(p)
             sv = np.array([[0.2, -0.5], [0.5, 0.0], [0.8, 0.4]])
             np.testing.assert_allclose(res["model"].evaluate(sv), reloaded.evaluate(sv), atol=1e-10)
+
+    def test_sor_denoising_and_l1_skeleton(self):
+        xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
+        rng = np.random.default_rng(7)
+        outliers = np.array([[0.5, 0.4, 0.3], [0.2, -0.45, -0.1], [0.8, 0.35, 0.5]])
+        out_nrm = rng.normal(size=(3, 3))
+        out_nrm /= np.linalg.norm(out_nrm, axis=1, keepdims=True)
+        pts_c, nrm_c = clean_leaf_points(np.vstack([xyz, outliers]), np.vstack([normals, out_nrm]))
+        expected_n = len(np.unique(xyz, axis=0))
+        self.assertEqual(len(pts_c), expected_n)
+        self.assertEqual(len(nrm_c), expected_n)
+        skel, _ = l1_medial_skeleton(xyz, n_samples=120)
+        self.assertLess(float(np.std(skel[:, 1])), float(np.std(xyz[:, 1])) * 0.45)
 
     def test_end_to_end_pipeline(self):
         xyz, normals, stem, _, hole, _, _ = make_synthetic_maize_leaf()

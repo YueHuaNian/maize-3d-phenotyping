@@ -2,7 +2,7 @@
 import csv
 from pathlib import Path
 import numpy as np
-from .geometry import build_normal_aligned_frame, extract_midrib, filter_noise_clusters, fit_stem_centerline
+from .geometry import build_normal_aligned_frame, clean_leaf_points, extract_midrib, fit_stem_centerline
 from .io import discover, load_pair, write_json, write_obj, write_ply
 from .morphology import MaizeShapePrior, calibrate_prior_from_leaves, extract_width_profile, fit_dornbusch_blade
 from .surface import COLORS, REGIONS, ModelConfig, fit_leaf
@@ -21,7 +21,7 @@ def calibrate_dataset_prior(pairs):
             if len(pts) < 800:
                 continue
             nrm = plant.normals[plant.labels == lid] if plant.normals is not None else None
-            pts, nrm = filter_noise_clusters(pts, nrm)
+            pts, nrm = clean_leaf_points(pts, nrm)
             midrib, l_obs, s_proj, _, _ = extract_midrib(pts, stem)
             frame = build_normal_aligned_frame(midrib, l_obs, pts, s_proj, normals=nrm)
             _, b_p, _ = frame.evaluate(s_proj)

@@ -10,7 +10,14 @@ from scipy.interpolate import BSpline
 from scipy.optimize import minimize_scalar
 from scipy.spatial import cKDTree, Delaunay
 from scipy.spatial.distance import cdist
-from .geometry import MovingFrame, build_normal_aligned_frame, extract_midrib, filter_noise_clusters, project_points_to_curve
+from .geometry import (
+    MovingFrame,
+    build_normal_aligned_frame,
+    clean_leaf_points,
+    extract_midrib,
+    project_points_to_curve,
+)
+from .joint import joint_optimize_geometry
 from .morphology import (
     DornbuschBlade,
     MaizeShapePrior,
@@ -175,50 +182,68 @@ class MaizeLeafModel:
         return cls(midrib, frame, blade, tps, float(d["length_obs"]))
 
 
-def _select_spatial_subset(u, v, max_points, rng):
+def _aggregate_tps_bins(u, v, h, max_points, rng):
+    """Aggregate TPS training samples by 2D bin median to suppress residual scatter spikes."""
     bins = np.column_stack([np.round(u * 40), np.round(v * 12)]).astype(int)
-    _, ix = np.unique(bins, axis=0, return_index=True)
-    if len(ix) > max_points:
-        ix = ix[np.sort(rng.choice(len(ix), max_points, replace=False))]
-    return ix
+    _, inv = np.unique(bins, axis=0, return_inverse=True)
+    n_bins = int(inv.max()) + 1
+    uv_med = np.empty((n_bins, 2), dtype=float)
+    h_med = np.empty(n_bins, dtype=float)
+    for idx in range(n_bins):
+        sel = inv == idx
+        uv_med[idx, 0] = float(np.median(u[sel]))
+        uv_med[idx, 1] = float(np.median(v[sel]))
+        h_med[idx] = float(np.median(h[sel]))
+    if n_bins > max_points:
+        pick = np.sort(rng.choice(n_bins, max_points, replace=False))
+        return uv_med[pick], h_med[pick]
+    return uv_med, h_med
 
 
 def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None):
-    """Full literature-backed maize leaf reconstruction and completion."""
+    """Modern Route 1 pipeline:
+    1. Dual-stage Euclidean cluster + SOR denoising
+    2. L1-Medial Skeleton + Principal Curve midrib & RMF initialization
+    3. Joint differentiable optimization of midrib, roll frame, camber, and Dornbusch width
+    4. BIC-validated tip completion (Prévot 1991) + Median-aggregated GML-TPS surface
+    """
     cfg = cfg or ModelConfig()
     prior = prior or MaizeShapePrior()
     rng = np.random.default_rng(cfg.seed)
 
-    # Deduplicate and remove tiny detached noise fragments (Euclidean cluster filtering).
-    p, nrm = filter_noise_clusters(points, normals)
+    # 1. Dual-stage denoising (Euclidean clusters + SOR).
+    p, nrm = clean_leaf_points(points, normals)
 
-    # 1. Geodesic-initialized Principal Curve midrib (arc-length parameterized).
-    midrib_obs, length_obs, s_proj, spacing, midrib_lam = extract_midrib(p, stem, seed=cfg.seed)
+    # 2. L1-medial skeleton + Principal Curve midrib & normal-aligned RMF initialization.
+    midrib_0, length_0, s_proj_0, spacing, midrib_lam = extract_midrib(p, stem, seed=cfg.seed)
+    frame_0 = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
 
-    # 2. Twist-free RMF aligned with measured point-cloud surface normals.
-    frame_obs = build_normal_aligned_frame(midrib_obs, length_obs, p, s_proj, normals=nrm)
+    # 3. Joint differentiable geometric optimization (fixes one-sided margin bias & frame roll).
+    midrib_obs, frame_obs, length_obs, s_proj = joint_optimize_geometry(
+        p, nrm, midrib_0, frame_0, length_0, s_proj_0, prior=prior
+    )
 
-    # 3. Express points in local physical coordinates (s, lateral r, normal h).
+    # 4. Express points in refined local physical coordinates (s, lateral r, normal h).
     _, b_p, n_p = frame_obs.evaluate(s_proj)
     res_p = p - midrib_obs(s_proj)
     lateral = np.sum(res_p * b_p, axis=1)
     normal_h = np.sum(res_p * n_p, axis=1)
 
-    # 4. Left/right width profile & Dornbusch (2011) analytical blade model.
+    # 5. Dornbusch (2011) blade model with BIC tip-truncation selection.
     prof = extract_width_profile(s_proj, lateral, length_obs)
     blade = fit_dornbusch_blade(
         prof["s"], prof["w_obs"], length_obs, prior=prior, allow_tip_completion=cfg.allow_tip_completion
     )
 
-    # 5. Midrib + RMF extrapolation for truncated tips (Prévot 1991 / ADEL-Maize).
+    # 6. Midrib + RMF extrapolation for truncated tips (Prévot 1991 / ADEL-Maize).
     midrib_full, frame_full = extrapolate_midrib_and_frame(midrib_obs, frame_obs, length_obs, blade.length)
 
-    # 6. Thin-Plate Spline (Duchon 1977) with exact GCV smoothing (Wahba 1990).
+    # 7. Thin-Plate Spline (Duchon 1977) on bin-median representatives + GML/REML smoothing (Wahba 1985).
     w_at_p = np.maximum(blade.width(s_proj), blade.w_max * 0.01)
     u_norm = s_proj / length_obs
     v_norm = np.clip(2.0 * lateral / w_at_p, -1.25, 1.25)
-    ix = _select_spatial_subset(u_norm, v_norm, cfg.max_tps_points, rng)
-    tps = ThinPlateSplineGCV.fit(np.column_stack([u_norm[ix], v_norm[ix]]), normal_h[ix])
+    tps_xy, tps_h = _aggregate_tps_bins(u_norm, v_norm, normal_h, cfg.max_tps_points, rng)
+    tps = ThinPlateSplineGCV.fit(tps_xy, tps_h)
 
     model = MaizeLeafModel(midrib_full, frame_full, blade, tps, length_obs)
 
