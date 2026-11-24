@@ -1,0 +1,77 @@
+{
+  "created_date": "2026-11-24",
+  "base_git_head": "2df4dfdec0471da0f12dc543e6913f5b0333d4bc",
+  "geometry_py_sha256": "df97e50436cb67b0373f1cf7e328b908196bc34704b22cc97b2a3bece6838f47",
+  "dataset": {
+    "plants": 14,
+    "leaves": 90,
+    "raw_points": 274683,
+    "single_pass_cluster_points": 273280,
+    "single_pass_fragments": 110
+  },
+  "sensitivity_benchmark": {
+    "script": "scripts/validate_sor_sensitivity.py",
+    "plot_script": "scripts/plot_sor_sensitivity.py",
+    "seed": 2026,
+    "configurations_evaluated": 282,
+    "k_grid": [6, 8, 10, 12, 16, 20, 24, 30, 40, 50],
+    "selected_config": {
+      "clustering": "single_pass_euclidean",
+      "method": "med_mad",
+      "k": 8,
+      "n_sigma": 3.5,
+      "formula": "mean_d <= median(mean_d) + 3.5 * 1.4826 * MAD(mean_d)"
+    },
+    "level2_injection_summary": {
+      "selected_med_mad_k8_a3.5": {
+        "plant_mcc_mean": 0.5275,
+        "plant_mcc_std": 0.1027,
+        "pooled_f1": 0.5875,
+        "pooled_mcc": 0.5756,
+        "recall_all": 0.5454,
+        "recall_isolated": 0.6718,
+        "recall_clustered": 0.3025
+      },
+      "previous_current_impl": {
+        "plant_mcc_mean": 0.4698,
+        "plant_mcc_std": 0.1276,
+        "pooled_f1": 0.5273,
+        "pooled_mcc": 0.5379,
+        "recall_all": 0.4119,
+        "recall_isolated": 0.4944,
+        "recall_clustered": 0.2534
+      }
+    },
+    "level3a_noisy_14plant_reconstruction": {
+      "no_sor": {"passed": 14, "n": 14, "med_rmse": 0.003356, "med_support": 0.006847, "med_len_err_pct": 8.84, "med_wid_err_pct": 4.77, "med_area_err_pct": 18.00},
+      "previous_current_impl": {"passed": 13, "n": 14, "med_rmse": 0.003154, "med_support": 0.004913, "med_len_err_pct": 3.66, "med_wid_err_pct": 3.88, "med_area_err_pct": 8.81},
+      "selected_med_mad_k8_a3.5": {"passed": 14, "n": 14, "med_rmse": 0.003194, "med_support": 0.004659, "med_len_err_pct": 4.16, "med_wid_err_pct": 1.86, "med_area_err_pct": 6.38}
+    }
+  },
+  "full_90leaf_fit_audit": {
+    "baseline": "outputs/maize_v2",
+    "candidate": "outputs/maize_sor_k8_mad35",
+    "leaves": 90,
+    "quality_passed": {"before": 90, "after": 90},
+    "orientation_reversed_leaves": {"before": 0, "after": 0},
+    "apex_closure_failed": {"before": 0, "after": 0},
+    "width_more_than_doubled_leaves": 0,
+    "surface_support_mean_median": {"before": 0.006472669087761368, "after": 0.006075258439274128},
+    "surface_support_improved_leaves": 50,
+    "raw": {
+      "before": {"median": 0.0024994892668407064, "p95": 0.015710050428561634, "rmse": 0.009547910160772301},
+      "after": {"median": 0.00245370037967631, "p95": 0.014930064954054786, "rmse": 0.00960930421888175},
+      "p95_improved_leaves": 38
+    },
+    "retained": {
+      "before": {"median": 0.002376494408873553, "p95": 0.009896870261659172, "rmse": 0.0050365445623510655},
+      "after": {"median": 0.0023341650216845596, "p95": 0.00955131985588362, "rmse": 0.004831152233078651},
+      "p95_improved_leaves": 54
+    }
+  },
+  "unit_tests": {
+    "command": ".venv\\Scripts\\python.exe scripts\\run_tests.py",
+    "passed": 14,
+    "total": 14
+  }
+}

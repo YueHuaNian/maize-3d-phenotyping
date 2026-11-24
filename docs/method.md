@@ -49,19 +49,19 @@ $$
 
 ### 3.2 各断片独立 SOR
 
-在每个保留分量内取最多 12 个非自身近邻，计算每点的近邻平均距离 $\bar{d}_i$：
+复用了第 3.1 节单次连通分量划分结果（不在删簇后缩小半径二次切分，避免产生孤立小碎点绕过 SOR）。在每个保留分量（点数 $\ge 20$）内取最多 $k = 8$ 个非自身近邻，计算每点的近邻平均距离 $\bar{d}_i$，采用单参数中位数/MAD 稳健阈值：
 
 $$
-m = \operatorname{median}(\bar{d}_i), \qquad \sigma_{\mathrm{rob}} = 1.4826\operatorname{median}|\bar{d}_i - m|,
+m = \operatorname{median}(\bar{d}_i), \qquad \sigma_{\mathrm{rob}} = 1.4826\operatorname{median}\lvert \bar{d}_i - m \rvert,
 $$
 
 $$
-\tau = \max\{m + 2\max(\sigma_{\mathrm{rob}}, 0.5\operatorname{std}(\bar{d})),\; 2.2\,m\}.
+\tau = m + 3.5\,\sigma_{\mathrm{rob}}.
 $$
 
-保留 $\bar{d}_i \le \tau$ 的点。少于 35 点不做 SOR；若一次筛选剩余不足 $\max(35, 0.85\,N_c)$ 则撤销本次筛选，保护稀疏叶尖不被误删。
+当规则合成网格导致 $\sigma_{\mathrm{rob}} \le 10^{-12}$ 时，尺度退回 $\operatorname{std}(\bar{d})$。保留 $\bar{d}_i \le \tau$ 的点；若一次筛选剩余不足 $\max(15, \lfloor 0.75\,N_c \rfloor)$ 则撤销本次筛选，保护稀疏叶尖不被过度裁切。
 
-邻域统计去噪思想参见 [PCL 官方 SOR 说明](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html)。本实现采用分断片局部处理与中位数/MAD 稳健尺度估计，无需依赖外部 PCL 库即可有效剔除扫描离群毛刺。
+邻域统计去噪思想参见 [PCL 官方 SOR 说明](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html)。$k = 8$ 与 $\alpha = 3.5$ 的取值由全量 14 株 / 90 片叶的三级敏感性实验（`scripts/validate_sor_sensitivity.py`，固定种子 `2026`，282 组 $k \in [6, 50]$ × 4 种阈值族对比）标定：在二维薄片叶片上，$k > 12$（如 PCL 教程默认 $k = 50$）会随 $\sqrt{k}$ 放大内点邻域半径、稀释近叶飞点对比度并加剧叶尖误删；$k = 6$ 对 3–5 点成团毛刺召回率偏低；$k = 8$ 搭配 $\tau = m + 3.5\,\sigma_{\mathrm{rob}}$ 在注噪端到端重建（14 株全通过，中位叶宽误差 `1.86%`、叶面积误差 `6.38%`）及全量 90 叶原始实测审计（90/90 通过，模型中立原始点 P95 最低且中位叶长/叶面积与基线偏差在 `1.2% / 0.8%` 内）中取得最佳综合平衡。
 
 ## 4. 公共拟合器：有界 P-spline 与 GCV
 
@@ -376,7 +376,7 @@ python scripts/visualize.py --root outputs/maize_checked
 
 | 来源 | 使用思想 | 本项目增强与定制 |
 |---|---|---|
-| [PCL SOR](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html) | 邻域统计去噪 | 分断片、MAD、保留比例和簇阈值 |
+| [PCL SOR](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html) | 邻域统计去噪 | 单次连通分断片、经 90 叶敏感性实验标定的 $k=8$ 与 $m + 3.5\sigma_{\mathrm{rob}}$ 阈值 |
 | [Eilers & Marx, 1996](https://doi.org/10.1214/ss/1038425655) | B-spline 差分惩罚 | 盒约束、基数和搜索区间 |
 | [Huang et al., 2013](https://doi.org/10.1145/2461912.2461913) | L1 吸引与方向斥力 | 单叶采样、带宽、迭代上限、范围回退和桥接 |
 | [Wang et al., 2008](https://doi.org/10.1145/1330511.1330513) | 双反射参考标架 | 扫描法向滚转和插值 |

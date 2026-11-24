@@ -240,5 +240,18 @@ class MaizeLeafV2Tests(unittest.TestCase):
                            5 * surface_support_diagnostics(narrow, scan)["mean"])
 
 
+    def test_sor_single_pass_clustering_removes_near_surface_outliers(self):
+        # Single-pass clustering must not re-shrink the radius graph after removing a far
+        # detached outlier and split a near-leaf halo point into a tiny fragment that bypasses SOR.
+        xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
+        near_halo = np.array([[0.5, 0.0, 0.085]])
+        far_outlier = np.array([[4.0, 4.0, 4.0]])
+        pts = np.vstack([xyz, near_halo, far_outlier])
+        nrm = np.vstack([normals, [[0.0, 0.0, 1.0]], [[0.0, 0.0, 1.0]]])
+        cleaned, _ = clean_leaf_points(pts, nrm)
+        self.assertGreater(float(cKDTree(cleaned).query(near_halo[0])[0]), 0.02)
+        self.assertGreater(float(cKDTree(cleaned).query(far_outlier[0])[0]), 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

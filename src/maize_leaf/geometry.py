@@ -20,12 +20,8 @@ def unit(v):
     return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-12)
 
 
-def filter_noise_clusters(points, normals=None):
-    """Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
-
-    Retains the largest connected component plus coherent fragments (>= max(20, 1% of points)),
-    preventing small scanner artifacts near the stem from hijacking leaf root selection.
-    """
+def _euclidean_clusters(points, normals=None):
+    """Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels."""
     _, uniq_idx = np.unique(points, axis=0, return_index=True)
     uniq_idx = np.sort(uniq_idx)
     p = points[uniq_idx]
@@ -43,36 +39,45 @@ def filter_noise_clusters(points, normals=None):
     main_lbl = int(np.argmax(sizes))
     min_size = max(20, int(0.01 * len(p)))
     keep = (lbl == main_lbl) | (sizes[lbl] >= min_size)
-    return p[keep], (nrm[keep] if nrm is not None else None)
+    _, frag_lbl = np.unique(lbl[keep], return_inverse=True)
+    return p[keep], (nrm[keep] if nrm is not None else None), frag_lbl
 
 
-def sor_filter(points, normals=None, k=12, n_sigma=2.0):
-    """Statistical Outlier Removal (Rusu et al. 2008) removing floating scanner halo points."""
-    if len(points) < 35:
+def filter_noise_clusters(points, normals=None):
+    """Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
+
+    Retains the largest connected component plus coherent fragments (>= max(20, 1% of points)),
+    preventing small scanner artifacts near the stem from hijacking leaf root selection.
+    """
+    p, nrm, _ = _euclidean_clusters(points, normals)
+    return p, nrm
+
+
+def sor_filter(points, normals=None, k=8, n_sigma=3.5):
+    """Robust MAD Statistical Outlier Removal (Rusu et al. 2008; calibrated k=8, n_sigma=3.5)."""
+    if len(points) < 20:
         return points, normals
+    k_eff = min(k, len(points) - 1)
     tree = cKDTree(points)
-    dists = tree.query(points, k=min(k + 1, len(points)))[0][:, 1:]
+    dists = tree.query(points, k=k_eff + 1)[0][:, 1:]
     mean_d = np.mean(dists, axis=1)
     med = float(np.median(mean_d))
     mad = float(np.median(np.abs(mean_d - med)))
     sigma_rob = 1.4826 * mad
-    std = float(np.std(mean_d))
-    thresh = max(med + n_sigma * max(sigma_rob, 0.5 * std), 2.2 * med)
+    if sigma_rob <= 1e-12:
+        sigma_rob = float(np.std(mean_d))
+    thresh = med + n_sigma * sigma_rob
     keep = mean_d <= thresh
-    if int(np.sum(keep)) < max(35, int(0.85 * len(points))):
+    if int(np.sum(keep)) < max(15, int(0.75 * len(points))):
         return points, normals
     return points[keep], (normals[keep] if normals is not None else None)
 
 
 def clean_leaf_points(points, normals=None):
-    """Dual-stage PCL denoising: Euclidean cluster filtering + Statistical Outlier Removal (SOR)."""
-    p, nrm = filter_noise_clusters(points, normals)
-    # Estimate noise within each fragment: a sparse terminal fragment must not be
-    # compared with the sampling density of the much denser main blade.
-    tree = cKDTree(p)
-    spacing = float(np.median(tree.query(p, k=min(2, len(p)))[0][:, -1]))
-    radius = max(5.0 * spacing, 0.03 * float(np.linalg.norm(np.ptp(p, axis=0))))
-    _, labels = connected_components(tree.sparse_distance_matrix(tree, radius, output_type="coo_matrix"))
+    """Dual-stage denoising: single-pass Euclidean cluster filtering + per-fragment robust MAD SOR."""
+    p, nrm, labels = _euclidean_clusters(points, normals)
+    # Estimate noise within each retained fragment without re-shrinking the radius graph:
+    # a sparse terminal fragment must not be compared with the much denser main blade.
     keep = np.zeros(len(p), dtype=bool)
     for label in np.unique(labels):
         idx = np.flatnonzero(labels == label)
