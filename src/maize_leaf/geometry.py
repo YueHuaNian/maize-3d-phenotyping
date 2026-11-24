@@ -11,6 +11,7 @@ import numpy as np
 from scipy.interpolate import BSpline
 from scipy.optimize import lsq_linear, minimize_scalar
 from scipy.spatial import cKDTree
+from scipy.spatial.distance import cdist
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 
@@ -31,22 +32,43 @@ def filter_noise_clusters(points, normals=None):
     nrm = normals[uniq_idx] if normals is not None else None
 
     tree = cKDTree(p)
-    d, idx = tree.query(p, k=min(13, len(p)))
-    spacing = float(np.median(d[:, 1]))
+    d2 = tree.query(p, k=min(2, len(p)))[0][:, -1]
+    spacing = float(np.median(d2))
     diam = float(np.linalg.norm(np.ptp(p, axis=0)))
     radius = max(spacing * 5.0, diam * 0.03)
 
-    rows = np.repeat(np.arange(len(p)), d.shape[1] - 1)
-    cols = idx[:, 1:].ravel()
-    mask_e = d[:, 1:].ravel() <= radius
-    g = coo_matrix((np.ones(int(mask_e.sum())), (rows[mask_e], cols[mask_e])), shape=(len(p), len(p))).tocsr()
-    g = g.maximum(g.T)
+    g = tree.sparse_distance_matrix(tree, max_distance=radius, output_type="coo_matrix")
     _, lbl = connected_components(g)
     sizes = np.bincount(lbl)
     main_lbl = int(np.argmax(sizes))
     min_size = max(30, int(0.05 * len(p)))
     keep = (lbl == main_lbl) | (sizes[lbl] >= min_size)
     return p[keep], (nrm[keep] if nrm is not None else None)
+
+
+def sor_filter(points, normals=None, k=12, n_sigma=2.0):
+    """Statistical Outlier Removal (Rusu et al. 2008) removing floating scanner halo points."""
+    if len(points) < 35:
+        return points, normals
+    tree = cKDTree(points)
+    dists = tree.query(points, k=min(k + 1, len(points)))[0][:, 1:]
+    mean_d = np.mean(dists, axis=1)
+    med = float(np.median(mean_d))
+    mad = float(np.median(np.abs(mean_d - med)))
+    sigma_rob = 1.4826 * mad
+    std = float(np.std(mean_d))
+    thresh = max(med + n_sigma * max(sigma_rob, 0.5 * std), 2.2 * med)
+    keep = mean_d <= thresh
+    if int(np.sum(keep)) < max(35, int(0.85 * len(points))):
+        return points, normals
+    return points[keep], (normals[keep] if normals is not None else None)
+
+
+def clean_leaf_points(points, normals=None):
+    """Dual-stage PCL denoising: Euclidean cluster filtering + Statistical Outlier Removal (SOR)."""
+    p, nrm = filter_noise_clusters(points, normals)
+    p, nrm = sor_filter(p, nrm)
+    return filter_noise_clusters(p, nrm)
 
 
 def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 1e4), bounded=True):
@@ -184,28 +206,128 @@ def project_points_to_curve(points, curve, s_max, n_init=300, n_newton=5):
     return s
 
 
-def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, seed=2026):
-    """Geodesic-initialized Principal Curve (Hastie & Stuetzle 1989) with arc-length P-spline."""
+def _farthest_point_sample(points, m, seed=2026):
+    """Deterministic greedy Farthest Point Sampling (FPS) for uniform skeleton seeding."""
+    n = len(points)
+    if n <= m:
+        return points.copy()
     rng = np.random.default_rng(seed)
-    idx_g = np.sort(rng.choice(len(points), min(len(points), max_graph_points), replace=False))
-    gp = points[idx_g]
-    geo, spacing = geodesic_order(gp, stem)
+    sel = np.empty(m, dtype=int)
+    sel[0] = int(rng.integers(n))
+    min_d2 = np.sum((points - points[sel[0]]) ** 2, axis=1)
+    for i in range(1, m):
+        sel[i] = int(np.argmax(min_d2))
+        d2 = np.sum((points - points[sel[i]]) ** 2, axis=1)
+        min_d2 = np.minimum(min_d2, d2)
+    return points[sel].copy()
 
-    nb = min(32, max(10, len(gp) // 80))
-    edges = np.linspace(0.0, geo.max(), nb + 1)
-    nodes = np.asarray([
-        np.median(gp[(geo >= a) & (geo <= b)], axis=0)
-        for a, b in zip(edges[:-1], edges[1:])
-        if np.sum((geo >= a) & (geo <= b)) >= 3
-    ])
+
+def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
+    """L1-Medial Skeleton contraction (Huang et al. 2013, ACM TOG).
+
+    Contracts the noisy, incomplete blade point cloud toward its 1D L1-median spine using
+    locally weighted Weiszfeld attraction combined with directional linearity repulsion.
+    """
+    rng = np.random.default_rng(seed)
+    ref_idx = np.sort(rng.choice(len(points), min(len(points), 2400), replace=False))
+    Q = points[ref_idx]
+    m = min(n_samples, max(24, len(Q) // 10))
+    X = _farthest_point_sample(Q, m, seed=seed)
+
+    d_nn = cKDTree(Q).query(Q, k=2)[0][:, 1]
+    spacing = float(np.median(d_nn))
+    diam = float(np.linalg.norm(np.ptp(Q, axis=0)))
+    h = max(0.12 * diam, 6.0 * spacing)
+    h_max = max(0.24 * diam, h)
+
+    for it in range(n_iters):
+        if it > 0 and it % 2 == 0:
+            h = min(h * 1.15, h_max)
+        inv_r2 = 4.0 / (h * h)
+
+        D_xq = cdist(X, Q)
+        theta = np.exp(-inv_r2 * (D_xq ** 2))
+        alpha = theta / np.maximum(D_xq, 1e-4 * h)
+        w_sum = np.sum(alpha, axis=1, keepdims=True)
+        A = np.where(w_sum > 1e-12, (alpha @ Q) / np.maximum(w_sum, 1e-12), X)
+
+        D_xx = cdist(X, X)
+        np.fill_diagonal(D_xx, np.inf)
+        phi = np.exp(-inv_r2 * (D_xx ** 2))
+        beta = phi / np.maximum(D_xx ** 2, (0.06 * h) ** 2)
+        np.fill_diagonal(beta, 0.0)
+
+        # Compute local directional linearity sigma_i = lambda_max / sum(lambda) (Huang et al. 2013 Eq. 5).
+        repulsion = np.zeros_like(X)
+        b_sum = np.sum(beta, axis=1)
+        for i in range(m):
+            if b_sum[i] < 1e-12:
+                continue
+            nb_idx = phi[i] > 1e-3
+            if np.sum(nb_idx) >= 3:
+                diff = X[nb_idx] - X[i]
+                cov = (diff * phi[i, nb_idx, None]).T @ diff
+                eig = np.linalg.eigvalsh(cov)
+                sigma = float(eig[-1] / max(float(np.sum(eig)), 1e-12))
+            else:
+                sigma = 0.5
+            r_vec = np.sum(beta[i, :, None] * (X[i] - X), axis=0) / b_sum[i]
+            r_norm = float(np.linalg.norm(r_vec))
+            if r_norm > 0.25 * h:
+                r_vec = r_vec * (0.25 * h / r_norm)
+            repulsion[i] = mu * sigma * r_vec
+
+        X = A + repulsion
+
+    return X, spacing
+
+
+def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, seed=2026):
+    """L1-Medial Skeleton (Huang et al. 2013) + Geodesic ordering + Principal Curve refinement."""
+    if len(points) >= 60:
+        skel, spacing = l1_medial_skeleton(points, seed=seed)
+        geo, _ = geodesic_order(skel, stem, k_nn=8)
+        order = np.argsort(geo)
+        skel_ord = skel[order]
+        geo_ord = geo[order]
+        # Bin ordered L1 skeleton nodes along geodesic coordinate to avoid near-duplicate knots.
+        nb_s = min(28, max(8, len(skel_ord) // 4))
+        edges_s = np.linspace(geo_ord[0], geo_ord[-1], nb_s + 1)
+        nodes = np.asarray([
+            np.median(skel_ord[(geo_ord >= a) & (geo_ord <= b)], axis=0)
+            for a, b in zip(edges_s[:-1], edges_s[1:])
+            if np.sum((geo_ord >= a) & (geo_ord <= b)) >= 1
+        ])
+    else:
+        geo, spacing = geodesic_order(points, stem)
+        edges = np.linspace(0.0, geo.max(), 11)
+        nodes = np.asarray([
+            np.median(points[(geo >= a) & (geo <= b)], axis=0)
+            for a, b in zip(edges[:-1], edges[1:])
+            if np.sum((geo >= a) & (geo <= b)) >= 2
+        ])
+
     s0 = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(nodes, axis=0), axis=1))]
     curve, lam = fit_pspline_gcv(s0, nodes)
     curve, length = reparameterize_arc_length(curve)
 
-    # Principal curve refinement: project all points continuously, re-estimate centers by arc-length bins.
+    # Extend both ends linearly along endpoint tangents so terminal leaf points are never clipped by L1 shrinkage.
+    t_start = unit(curve(0.0, nu=1))
+    t_end = unit(curve(length, nu=1))
+    p_ext = np.vstack([
+        curve(0.0) - 0.15 * length * t_start,
+        curve(np.linspace(0.0, length, 40)),
+        curve(length) + 0.15 * length * t_end,
+    ])
+    s_ext = np.r_[-0.15 * length, np.linspace(0.0, length, 40), 1.15 * length]
+    ext_curve, _ = fit_pspline_gcv(s_ext, p_ext, n_basis=14, lam_bounds=(1e-6, 1e-1), bounded=False)
+    grid_s = np.linspace(-0.15 * length, 1.15 * length, 350)
+    s_proj = grid_s[cKDTree(ext_curve(grid_s)).query(points)[1]]
+    s_lo, s_hi = float(np.quantile(s_proj, 0.005)), float(np.quantile(s_proj, 0.995))
+
+    nb = min(32, max(10, len(points) // 80))
     for _ in range(n_principal_iters):
-        s_proj = project_points_to_curve(points, curve, length)
-        edges = np.linspace(0.0, length, nb + 1)
+        edges = np.linspace(s_lo, s_hi, nb + 1)
         s_nodes, p_nodes = [], []
         for a, b in zip(edges[:-1], edges[1:]):
             mask = (s_proj >= a) & (s_proj <= b)
@@ -216,11 +338,12 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
             break
         s_nodes = np.asarray(s_nodes)
         p_nodes = np.asarray(p_nodes)
-        order = np.argsort(s_nodes)
-        curve, lam = fit_pspline_gcv(s_nodes[order], p_nodes[order])
+        ord_idx = np.argsort(s_nodes)
+        curve, lam = fit_pspline_gcv(s_nodes[ord_idx], p_nodes[ord_idx])
         curve, length = reparameterize_arc_length(curve)
+        s_proj = project_points_to_curve(points, curve, length)
+        s_lo, s_hi = 0.0, length
 
-    s_proj = project_points_to_curve(points, curve, length)
     return curve, length, s_proj, spacing, lam
 
 

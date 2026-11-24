@@ -17,7 +17,7 @@ os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import numpy as np
 from scipy.spatial import cKDTree
-from maize_leaf.geometry import build_normal_aligned_frame, extract_midrib, fit_stem_centerline
+from maize_leaf.geometry import build_normal_aligned_frame, clean_leaf_points, extract_midrib, fit_stem_centerline
 from maize_leaf.io import discover, load_pair, write_json
 from maize_leaf.morphology import extract_width_profile
 from maize_leaf.pipeline import calibrate_dataset_prior
@@ -38,6 +38,7 @@ def evaluate_holdout(input_root, output_dir, max_leaves=8):
             if len(pts) < 2000:
                 continue
             nrm = plant.normals[plant.labels == lid] if plant.normals is not None else None
+            pts, nrm = clean_leaf_points(pts, nrm)
             midrib, l_obs, s_proj, _, _ = extract_midrib(pts, stem)
             frame = build_normal_aligned_frame(midrib, l_obs, pts, s_proj, normals=nrm)
             _, b_p, _ = frame.evaluate(s_proj)
