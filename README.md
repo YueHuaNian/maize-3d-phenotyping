@@ -24,8 +24,10 @@ python scripts/run.py
 python scripts/run.py --plant 1-1-2
 python scripts/run.py --plant 1-1-2 --leaf 1
 
-# 独立交互/静态可视化
-python scripts/visualize.py --plant 1-1-2
+# 独立交互可视化（打开浏览器，支持自由切换全部植株与单个叶片）
+python scripts/visualize.py
+python scripts/visualize.py --list
+python scripts/visualize.py --plant 1-1-2 --leaf 1
 python scripts/visualize.py --plant 1-1-2 --leaf 1 --backend mpl --save leaf_01.png
 python scripts/visualize.py --model outputs/maize_v2/plant_1-1-2/leaves/leaf_01_model.npz
 
