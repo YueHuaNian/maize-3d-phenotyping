@@ -45,7 +45,6 @@ h2{font-size:14px;margin:0 0 8px}#featurePlot{height:250px;margin:-4px -6px}
 <button id="wholeBtn">清除选叶</button><label><input id="isolateLeaf" type="checkbox">仅看选中叶</label>
 <label>着色 <select id="colorBySel"><option value="kmeans">姿态类别</option><option value="region">观测 / 插值 / 外推</option></select></label>
 <label>类别 <select id="classFilter"><option value="all">全部类别</option><option value="convergent">紧缩</option><option value="expanded">舒展</option><option value="drooping">下垂</option></select></label>
-<label>检查 <select id="reviewFilter"><option value="all">全部叶片</option><option value="ambiguous">边界模糊</option><option value="switched">LOPO切换</option><option value="height">与无高度对照不同</option><option value="support">支撑待查</option></select></label>
 <button id="resetFilters">清除筛选</button>
 </div>
 <div class="toolbar">
@@ -87,11 +86,10 @@ let state={plant:null,leaf:null,colorBy:'kmeans'}, plotBound=false, featureBound
 function allLeaves(){return payload?.info.leaves || [];}
 // 读取单叶分类字段，允许未分类场景继续显示。
 function record(l){return l.classification || {};}
-// 联合类别筛选与边界、稳定性、支撑质量复查筛选。
+// 按姿态类别筛选叶片。
 function passes(l){
- const r=record(l), cf=el('classFilter').value, rf=el('reviewFilter').value;
- return (cf==='all'||r.cluster_kmeans===cf) &&
- (rf==='all'||rf==='ambiguous'&&r.ambiguous_r080||rf==='switched'&&r.lopo_switched||rf==='height'&&r.changed_by_height||rf==='support'&&l.support_review_required);
+ const cf=el('classFilter').value;
+ return cf==='all'||record(l).cluster_kmeans===cf;
 }
 // 按当前植株目录填充选择框，并同步已选叶和着色方式。
 function populate(){
@@ -243,12 +241,12 @@ function renderSidebar(visible){
   ['俯仰熵 H（12分箱）',fmt(r.pitch_entropy_b12,3)],['相对着生高度 h',fmt(r.relative_height,3)],
   ['水平投影面积',fmt(r.projected_area_element,4)],['观测面积占比',fmt(r.coverage_observed == null ? null : 100*r.coverage_observed,1)+'%'],
   ['外推面积占比',fmt(r.coverage_extrapolated == null ? null : 100*r.coverage_extrapolated,1)+'%'],['原始簇距离比 r',fmt(r.distance_ratio_r,3)],
-  ['留一株预测',ci(r.cluster_kmeans_lopo_oof).zh],['不含高度的原始聚类',ci(r.cluster_without_height).zh],['重建支撑复查',selected.support_review_required?'仍需人工核验':'未触发支撑告警'],['远离点云面积占比',fmt(selected.support_far_area_fraction==null?null:100*selected.support_far_area_fraction,1)+'%']
+  ['不含高度的原始聚类',ci(r.cluster_without_height).zh],['重建支撑复查',selected.support_review_required?'仍需人工核验':'未触发支撑告警'],['远离点云面积占比',fmt(selected.support_far_area_fraction==null?null:100*selected.support_far_area_fraction,1)+'%']
  ].map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>':'点击曲面、叶片卡片或散点查看四因素；默认保留整株，勾选“仅看选中叶”可隔离检查。';
  const sorted=[...leaves].filter(passes).sort((a,b)=>(record(b).relative_height??-1)-(record(a).relative_height??-1));
  el('leafList').innerHTML=sorted.length?sorted.map(l=>{
   const r=record(l), c=ci(r.cluster_kmeans), selected=l.leaf_id===state.leaf;
-  const tags=(r.ambiguous_r080?'<span class="tag">边界</span>':'')+(r.lopo_switched?'<span class="tag">LOPO切换</span>':'')+(r.changed_by_height?'<span class="tag">对照不同</span>':'')+(l.support_review_required?'<span class="tag">支撑待查</span>':'')+(r.semantic_reassigned?'<span class="tag">语义调整</span>':'');
+  const tags=(r.ambiguous_r080?'<span class="tag">边界</span>':'')+(r.changed_by_height?'<span class="tag">对照不同</span>':'')+(l.support_review_required?'<span class="tag">支撑待查</span>':'')+(r.semantic_reassigned?'<span class="tag">语义调整</span>':'');
   return '<button class="leaf-btn'+(selected?' selected':'')+'" style="border-left-color:'+c.color+'" data-leaf="'+l.leaf_id+'"><span class="leaf-head"><b>L'+l.leaf_id+'</b><span class="pill" style="background:'+c.color+'">'+c.zh+'</span>'+tags+'</span><span class="features"><span>θ '+fmt(r.stem_leaf_angle_deg,1)+'°</span><span>相对投影面积 '+fmt(r.rel_projected_area,3)+'</span><span>俯仰熵 '+fmt(r.pitch_entropy_b12,3)+'</span><span>相对高度 '+fmt(r.relative_height,3)+'</span></span><span class="height-track"><i style="width:'+Math.max(0,Math.min(100,100*(r.relative_height||0)))+'%"></i></span></button>';
  }).join(''):'<div class="empty">没有符合筛选条件的叶片。</div>';
  el('leafList').querySelectorAll('[data-leaf]').forEach(button=>button.onclick=()=>{const id=Number(button.dataset.leaf);selectLeaf(state.leaf===id?null:id);});
@@ -257,7 +255,7 @@ function renderSidebar(visible){
 async function renderFeatures(){
  updatingFeature=true;
  try{
- const key=state.plant+'_'+el('classFilter').value+'_'+el('reviewFilter').value;
+ const key=state.plant+'_'+el('classFilter').value;
  if(key!==featureKey){
   featureGroups=Object.entries(CLS).map(([name,c])=>({
    name,c,leaves:allLeaves().filter(l=>passes(l)&&record(l).cluster_kmeans===name)
@@ -289,8 +287,8 @@ el('nextPlant').onclick=()=>selectPlant(names[(names.indexOf(state.plant)+1)%nam
 el('leafSel').onchange=()=>selectLeaf(el('leafSel').value===''?null:Number(el('leafSel').value));
 el('wholeBtn').onclick=()=>selectLeaf(null);
 el('colorBySel').onchange=()=>{state.colorBy=el('colorBySel').value;syncUrl();if(BOOTSTRAP?.offline)render();else selectPlant(state.plant,state.leaf);};
-for(const id of ['classFilter','reviewFilter','chkPoints','chkSurface','chkMidrib','chkStem','chkLabels','isolateLeaf','chkInferred'])el(id).onchange=render;
-el('resetFilters').onclick=()=>{el('classFilter').value='all';el('reviewFilter').value='all';state.leaf=null;el('leafSel').value='';syncUrl();render();};
+for(const id of ['classFilter','chkPoints','chkSurface','chkMidrib','chkStem','chkLabels','isolateLeaf','chkInferred'])el(id).onchange=render;
+el('resetFilters').onclick=()=>{el('classFilter').value='all';state.leaf=null;el('leafSel').value='';syncUrl();render();};
 el('resetCamera').onclick=()=>Plotly.relayout('plot',{'scene.camera':cameraDefault});
 el('frontView').onclick=()=>Plotly.relayout('plot',{'scene.camera':{eye:{x:0,y:2.3,z:.25},up:{x:0,y:0,z:1}}});
 el('topView').onclick=()=>Plotly.relayout('plot',{'scene.camera':{eye:{x:0,y:0,z:2.5},up:{x:0,y:1,z:0}}});

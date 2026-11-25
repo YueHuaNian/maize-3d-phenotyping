@@ -100,16 +100,11 @@ async function check(offline) {
   assert.equal(surfaces()[0].meta.leaf_id, 3);
   assert.equal(surfaces().length, 1);
 
-  elements.get('classFilter').value = 'all';
-  elements.get('reviewFilter').value = 'ambiguous';
+  elements.get('resetFilters').onclick();
   await vm.runInContext('render()', context);
-  assert.equal(surfaces()[0].meta.leaf_id, 2);
-
-  elements.get('reviewFilter').value = 'support';
-  await vm.runInContext('render()',context);
-  assert.equal(surfaces().length,1);
-  assert.equal(surfaces()[0].meta.leaf_id,3);
-  elements.get('reviewFilter').value = 'all';
+  assert.equal(surfaces().length, 3);
+  assert.equal(elements.get('classFilter').value, 'all');
+  assert.equal(vm.runInContext('state.leaf', context), null);
   await vm.runInContext("state.colorBy='region'; render()", context);
   assert.equal(surfaces().length, 3);
   assert.deepEqual(Array.from(surfaces()[0].facecolor), ['#abcdef']);

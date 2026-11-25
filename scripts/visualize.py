@@ -122,12 +122,9 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
     col, mode_label = COLOR_MODE_COLUMNS.get(active_mode, ("cluster_kmeans", "四因素姿态分类 (K-means)"))
     cls_key = cls_rec.get(col, "")
     cm = _class_info(cls_key)
-    oof_zh = _class_info(cls_rec.get("cluster_kmeans_lopo_oof", ""))["zh"]
     flags = []
     if cls_rec.get("ambiguous_r080"):
         flags.append("边界模糊 r>0.80")
-    if cls_rec.get("lopo_switched"):
-        flags.append(f"LOPO切换→{oof_zh}")
     flag_line = f"<br><b>标记:</b> {' · '.join(flags)}" if flags else ""
     def fmt(name, digits=3):
         """将可选表型值格式化为悬浮提示文本。"""
@@ -137,7 +134,7 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
         f"<b>叶片 {leaf_id} · {cm['zh']} ({cm['en']})</b> [{mode_label}]"
         f"<br>茎叶角 θ={fmt('stem_leaf_angle_deg', 1)}° | 同株相对投影面积 P={fmt('rel_projected_area')} | 俯仰熵 H={fmt('pitch_entropy_b12')}"
         f"<br>相对着生高度 h={fmt('relative_height')} | 观测覆盖率={fmt('coverage_observed')}"
-        f"<br>边界比 r={fmt('distance_ratio_r')} | LOPO预测={oof_zh}"
+        f"<br>边界比 r={fmt('distance_ratio_r')}"
         f"{flag_line}"
     )
 
@@ -520,7 +517,7 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
     out_dir.mkdir(parents=True, exist_ok=True)
     ensure_plotly_js(out_dir)
     counts = {c: 0 for c in CLASS_META}
-    total = ambiguous = switched = 0
+    total = ambiguous = 0
     index_rows = []
     for plant in catalog:
         scene = load_scene_from_outputs(root, plant)
@@ -535,12 +532,11 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
         n = info["leaf_count"]
         total += n
         ambiguous += info["n_ambiguous"]
-        switched += info["n_lopo_switched"]
         for c in counts:
             counts[c] += cc[c]
         cells = "".join(f'<td style="color:{CLASS_META[c]["color"]}">{cc[c]}</td>' for c in counts)
         index_rows.append(f'<tr><td><a href="plant_{escape(plant, quote=True)}.html">{escape(plant)}</a></td>'
-                          f'<td>{n}</td>{cells}<td>{info["n_ambiguous"]}</td><td>{info["n_lopo_switched"]}</td></tr>')
+                          f'<td>{n}</td>{cells}<td>{info["n_ambiguous"]}</td></tr>')
     weight = metadata.get("primary_model", {}).get("height_weight", "未记录")
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -554,9 +550,9 @@ a{{color:#197452}}.chips{{display:flex;gap:20px;flex-wrap:wrap}}.table-scroll{{o
 <div>茎叶角 θ · 同株相对投影面积 P · 俯仰熵 H · 相对茎秆着生高度 h</div></header><main>
 <div class="card chips"><b>{len(catalog)} 株 / {total} 片叶</b><span>紧缩 {counts['convergent']}</span>
 <span>舒展 {counts['expanded']}</span><span>下垂 {counts['drooping']}</span>
-<span>边界模糊 {ambiguous}</span><span>LOPO切换 {switched}</span></div>
+<span>边界模糊 {ambiguous}</span></div>
 <div class="card"><b>点击植株打开交互视图</b><div class="table-scroll"><table>
-<tr><th>植株</th><th>叶片数</th><th>紧缩</th><th>舒展</th><th>下垂</th><th>边界</th><th>LOPO切换</th></tr>
+<tr><th>植株</th><th>叶片数</th><th>紧缩</th><th>舒展</th><th>下垂</th><th>边界</th></tr>
 {''.join(index_rows)}</table></div></div>
 <div class="card">高度距离权重：{weight}（标准化后）。<br>
 紧缩候选为顶部小型未充分展开叶；没有每株类别配额。高度分布仅用于描述；下垂不等于衰老。<br>
