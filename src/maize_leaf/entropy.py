@@ -1,4 +1,6 @@
-"""Area-weighted equal-solid-angle hemisphere normal Shannon entropy (standalone toggleable module).
+"""基于曲面面积加权的法向熵和纵向俯仰熵计算。
+
+Area-weighted equal-solid-angle hemisphere normal Shannon entropy (standalone toggleable module).
 
 Mathematical basis:
   - Leaf blades are thin two-sided surfaces whose outward normal sign may flip; normals are
@@ -15,7 +17,7 @@ Mathematical basis:
 import numpy as np
 
 
-# Ring cell counts from equator (n_z = 0) to zenith polar cap (n_z = 1): sum == B.
+# 从赤道到天顶的环带分箱数，总和等于 B。
 ZONAL_RING_COUNTS = {
     12: (6, 5, 1),
     24: (10, 8, 5, 1),
@@ -24,7 +26,9 @@ ZONAL_RING_COUNTS = {
 
 
 def canonicalize_hemisphere_normals(normals):
-    """Map unit normals n ~ -n canonically onto the upper hemisphere (n_z >= 0)."""
+    """将正负等价的法向统一映射至上半球。
+
+    Map unit normals n ~ -n canonically onto the upper hemisphere (n_z >= 0)."""
     n = np.asarray(normals, dtype=float)
     norms = np.linalg.norm(n, axis=1, keepdims=True)
     u = n / np.maximum(norms, 1e-12)
@@ -41,7 +45,9 @@ def canonicalize_hemisphere_normals(normals):
 
 
 def triangle_normals_and_areas(vertices, faces):
-    """Return unit normals and areas for non-degenerate mesh triangles."""
+    """过滤退化三角面，计算单位法向与面积。
+
+    Return unit normals and areas for non-degenerate mesh triangles."""
     tri = vertices[faces]
     cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     twice_area = np.linalg.norm(cross, axis=1)
@@ -52,7 +58,9 @@ def triangle_normals_and_areas(vertices, faces):
 
 
 def equal_area_bin_centers(n_bins=24):
-    """Return representative unit normal vectors at the center of each equal-solid-angle cell."""
+    """生成等立体角法向分箱的代表方向。
+
+    Return representative unit normal vectors at the center of each equal-solid-angle cell."""
     if n_bins not in ZONAL_RING_COUNTS:
         raise ValueError(f"Unsupported n_bins={n_bins}; choose from {sorted(ZONAL_RING_COUNTS)}")
     rings = ZONAL_RING_COUNTS[n_bins]
@@ -74,7 +82,9 @@ def equal_area_bin_centers(n_bins=24):
 
 
 def normal_hemisphere_entropy(normals, areas, n_bins=24):
-    """Compute area-weighted normalized Shannon entropy H_N in [0, 1] over equal-solid-angle cells."""
+    """按面元面积累计等立体角法向分布的归一化香农熵。
+
+    Compute area-weighted normalized Shannon entropy H_N in [0, 1] over equal-solid-angle cells."""
     if n_bins not in ZONAL_RING_COUNTS:
         raise ValueError(f"Unsupported n_bins={n_bins}; choose from {sorted(ZONAL_RING_COUNTS)}")
     rings = ZONAL_RING_COUNTS[n_bins]
@@ -88,7 +98,7 @@ def normal_hemisphere_entropy(normals, areas, n_bins=24):
     u = canonicalize_hemisphere_normals(np.asarray(normals, dtype=float)[valid])
     w = areas[valid]
 
-    # Map each normal to its equal-solid-angle zonal ring and azimuthal sector
+    # 将各法向映射到等立体角环带及方位角扇区。
     z_scaled = u[:, 2] * float(n_bins)
     phi = np.where(np.hypot(u[:, 0], u[:, 1]) < 1e-12, 0.0, np.arctan2(u[:, 1], u[:, 0]))
     phi_norm = (phi + np.pi) / (2.0 * np.pi)  # [0, 1)
@@ -117,13 +127,17 @@ def normal_hemisphere_entropy(normals, areas, n_bins=24):
 
 
 def mesh_normal_entropy(vertices, faces, n_bins=24):
-    """Convenience wrapper computing area-weighted hemisphere normal entropy directly from a mesh."""
+    """由网格面元直接计算面积加权半球法向熵。
+
+    Convenience wrapper computing area-weighted hemisphere normal entropy directly from a mesh."""
     normals, areas = triangle_normals_and_areas(vertices, faces)
     return normal_hemisphere_entropy(normals, areas, n_bins=n_bins)
 
 
 def surface_pitch_entropy_from_grid(xyz, s_vals, v_vals, n_bins=12):
-    """Area-weighted 1D Shannon entropy of longitudinal tangent pitch angle phi in [-90, +90] deg.
+    """对纵向切向俯仰角进行面积加权分箱，计算归一化熵。
+
+    Area-weighted 1D Shannon entropy of longitudinal tangent pitch angle phi in [-90, +90] deg.
 
     Mathematical properties:
       - Longitudinal tangent S_s is tangent to the midrib/blade growth direction, so its vertical
@@ -164,8 +178,10 @@ def surface_pitch_entropy_from_grid(xyz, s_vals, v_vals, n_bins=12):
 
 
 def model_pitch_entropy(model, n_bins=12, ns=60, nv=17, v_lim=0.90):
-    """Compute area-weighted longitudinal pitch-angle Shannon entropy directly from a MaizeLeafModel."""
-    s_vals = np.linspace(0.0, model.blade.length, ns)
+    """在模型活动域采样并计算纵向俯仰角信息熵。
+
+    Compute area-weighted longitudinal pitch-angle Shannon entropy directly from a MaizeLeafModel."""
+    s_vals = np.linspace(0.0, model.length, ns)
     v_vals = np.linspace(-float(v_lim), float(v_lim), nv)
     ss, vv = np.meshgrid(s_vals, v_vals, indexing="ij")
     xyz = model.evaluate(np.column_stack([ss.ravel(), vv.ravel()])).reshape(ns, nv, 3)

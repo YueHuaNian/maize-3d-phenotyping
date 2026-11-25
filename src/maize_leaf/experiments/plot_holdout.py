@@ -1,11 +1,13 @@
-"""Render occlusion-error distributions and explicitly ranked diagnostic cases."""
+"""绘制留出误差汇总及逐案例点云与曲面对照。
+
+Render occlusion-error distributions and explicitly ranked diagnostic cases."""
 import argparse
 import json
 import os
 from pathlib import Path
 import sys
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 验证绘图（重建阶段）：遮挡留出误差分布与失败案例诊断图
+ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache/matplotlib"))
 import matplotlib
 matplotlib.use("Agg")
@@ -24,6 +26,7 @@ BLUE, ORANGE, GREY = "#4477AA", "#CC6677", "#88939E"
 
 
 def save_figure(fig, path, qa_scripts=None):
+    """保存诊断图，并在指定时运行外部图版对齐检查。"""
     fig.canvas.draw()
     if qa_scripts:
         sys.path.insert(0, str(qa_scripts))
@@ -37,6 +40,7 @@ def save_figure(fig, path, qa_scripts=None):
 
 
 def case_figure(root, row, destination, qa_scripts=None):
+    """绘制单个留出案例的观测点、隐藏点与预测曲面。"""
     prefix = root / row["artifact"]
     with np.load(str(prefix) + "_split.npz") as data:
         points, obs, held = data["points"], data["observed"], data["held"]
@@ -99,6 +103,7 @@ def case_figure(root, row, destination, qa_scripts=None):
 
 
 def summary_figure(report, destination, qa_scripts=None):
+    """绘制各遮挡场景的距离误差和表型漂移汇总。"""
     fig, axes = plt.subplots(1, 2, figsize=(9, 4.3))
     fig.subplots_adjust(left=.08, right=.98, bottom=.20, top=.84, wspace=.30)
     rows = report["records"]
@@ -130,13 +135,14 @@ def summary_figure(report, destination, qa_scripts=None):
     save_figure(fig, destination, qa_scripts)
 
 
-def main():
+def main(argv=None):
+    """读取指定留出结果，导出汇总图与案例诊断。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--qa-scripts", type=Path)
     parser.add_argument("--top-per-scenario", type=int, default=2)
     parser.add_argument("--case", action="append", default=[], help="Also show plant:leaf:scenario, including a repaired case")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 8, "axes.titlesize": 9,
                          "pdf.fonttype": 42, "svg.fonttype": "none", "axes.spines.top": False,
                          "axes.spines.right": False, "legend.frameon": False})
@@ -179,7 +185,3 @@ def main():
         html += f'<h2>{entry["plant"]} leaf {entry["leaf_id"]} {entry["scenario"]}</h2><img src="{entry["figure"]}" style="max-width:100%">'
     (folder / "index.html").write_text(html, encoding="utf-8")
     print(f"Rendered summary and {len(entries)} failure/alert examples")
-
-
-if __name__ == "__main__":
-    main()

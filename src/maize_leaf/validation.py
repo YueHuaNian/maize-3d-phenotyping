@@ -1,11 +1,15 @@
-"""Deterministic occlusion splits and exact point-to-triangle benchmark distances."""
+"""冻结遮挡划分、点到三角面距离与工程误差告警。
+
+Deterministic occlusion splits and exact point-to-triangle benchmark distances."""
 import numpy as np
 
 SCENARIOS = ("hole", "margin", "tip_10pct", "tip_20pct", "tip_30pct")
 
 
 def occlusion_masks(u, v):
-    """Use frozen full-scan coordinates only to define the test split."""
+    """仅用完整扫描坐标定义固定遮挡划分，隐藏点不参与拟合。
+
+    Use frozen full-scan coordinates only to define the test split."""
     u, v = np.asarray(u), np.asarray(v)
     return {
         "hole": ((u - 0.50) / 0.08) ** 2 + (v / 0.56) ** 2 < 1.0,
@@ -17,7 +21,9 @@ def occlusion_masks(u, v):
 
 
 def point_mesh_distances(points, vertices, faces, chunk_size=32):
-    """Euclidean distance to triangle interiors/edges, including degenerate faces.
+    """计算点到三角面内部和边的精确最近距离，兼容退化面。
+
+    Euclidean distance to triangle interiors/edges, including degenerate faces.
 
     All triangles are examined in bounded point batches. The result is exact
     for the supplied mesh, rather than a nearest sampled-vertex approximation.
@@ -51,13 +57,16 @@ def point_mesh_distances(points, vertices, faces, chunk_size=32):
 
 
 def summarize_distances(distances):
+    """汇总距离的中位数、分位数与均方根误差。"""
     d = np.asarray(distances)
     return {"median": float(np.median(d)), "p95": float(np.quantile(d, .95)),
             "rmse": float(np.sqrt(np.mean(d ** 2)))}
 
 
 def holdout_alerts(record):
-    """Fixed engineering alerts, recorded before the benchmark; not acceptance truth."""
+    """按冻结参考尺度判断预先设定的工程告警。
+
+    Fixed engineering alerts, recorded before the benchmark; not acceptance truth."""
     alerts = []
     if record["held_p95"] > max(6 * record["spacing"], .15 * record["ref_max_width"]):
         alerts.append("held_p95")

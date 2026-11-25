@@ -1,4 +1,6 @@
-"""Differential geometry primitives for maize stems and leaves.
+"""点云去噪、茎秆与中脉拟合及无扭转移动标架。
+
+Differential geometry primitives for maize stems and leaves.
 
 References:
 - Eilers & Marx (1996) Statistical Science: Penalized B-splines (P-splines)
@@ -17,11 +19,14 @@ from scipy.sparse.csgraph import connected_components, dijkstra
 
 
 def unit(v):
+    """按最后一维归一化向量，并用小量避免零向量除零。"""
     return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-12)
 
 
 def _euclidean_clusters(points, normals=None):
-    """Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels.
+    """精确去重后进行单次欧氏连通分量筛选，同时保留断片编号。
+
+    Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels.
 
     Uses the 1%-99% quantile bounding-box diagonal D_rob so far stray outliers cannot inflate
     the connection radius r = max(5.0 * spacing, 0.02 * D_rob) and absorb nearby detached noise.
@@ -48,7 +53,9 @@ def _euclidean_clusters(points, normals=None):
 
 
 def filter_noise_clusters(points, normals=None):
-    """Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
+    """保留最大连通簇和足够大的断片，去除小型离散误标簇。
+
+    Euclidean cluster filtering (Rusu & Cousins 2011) to remove tiny detached mislabeled fragments.
 
     Retains the largest connected component plus coherent fragments (>= max(20, 1% of points)),
     preventing small scanner artifacts near the stem from hijacking leaf root selection.
@@ -58,7 +65,9 @@ def filter_noise_clusters(points, normals=None):
 
 
 def sor_filter(points, normals=None, k=8, n_sigma=3.5):
-    """Robust MAD Statistical Outlier Removal (Rusu et al. 2008; calibrated k=8, n_sigma=3.5)."""
+    """按近邻平均距离及稳健 MAD 阈值筛除单个断片的离群点。
+
+    Robust MAD Statistical Outlier Removal (Rusu et al. 2008; calibrated k=8, n_sigma=3.5)."""
     if len(points) < 20:
         return points, normals
     k_eff = min(k, len(points) - 1)
@@ -78,10 +87,12 @@ def sor_filter(points, normals=None, k=8, n_sigma=3.5):
 
 
 def clean_leaf_points(points, normals=None):
-    """Dual-stage denoising: single-pass Euclidean cluster filtering + per-fragment robust MAD SOR."""
+    """先筛连通簇再逐断片去噪，避免稀疏叶尖与密集叶身直接比较。
+
+    Dual-stage denoising: single-pass Euclidean cluster filtering + per-fragment robust MAD SOR."""
     p, nrm, labels = _euclidean_clusters(points, normals)
-    # Estimate noise within each retained fragment without re-shrinking the radius graph:
-    # a sparse terminal fragment must not be compared with the much denser main blade.
+    # 在各保留断片内部估计噪声，不再收缩连接半径：
+    # 避免将稀疏末端断片与密集叶身直接比较。
     keep = np.zeros(len(p), dtype=bool)
     for label in np.unique(labels):
         idx = np.flatnonzero(labels == label)
@@ -91,7 +102,9 @@ def clean_leaf_points(points, normals=None):
 
 
 def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 1e4), bounded=True):
-    """Penalized B-spline (Eilers & Marx 1996) with automatic GCV smoothing (Wahba 1990)."""
+    """拟合带二阶差分惩罚的 B 样条，通过 GCV 自动选择平滑强度。
+
+    Penalized B-spline (Eilers & Marx 1996) with automatic GCV smoothing (Wahba 1990)."""
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
     is_1d = y.ndim == 1
@@ -117,6 +130,7 @@ def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 
     n = len(t)
 
     def gcv(log_lam):
+        """计算给定对数平滑参数下的广义交叉验证目标。"""
         lam = 10.0 ** log_lam
         A = BtB + lam * P + 1e-12 * np.eye(nc)
         Ainv_Bt = np.linalg.solve(A, Bw.T)
@@ -146,11 +160,14 @@ def fit_pspline_gcv(t, y, n_basis=10, degree=3, weights=None, lam_bounds=(1e-3, 
 
 
 def spline_dict(s):
+    """将样条节点、系数和阶数转为可保存的字典。"""
     return {"knots": s.t.tolist(), "coefficients": s.c.tolist(), "degree": int(s.k)}
 
 
 def fit_stem_centerline(points):
-    """Z-binned median stem centerline fitted with GCV P-spline."""
+    """沿高度分箱取茎秆中位点，并用平滑样条拟合中心线。
+
+    Z-binned median stem centerline fitted with GCV P-spline."""
     z = points[:, 2]
     nb = min(50, max(8, len(points) // 40))
     edges = np.linspace(z.min(), z.max(), nb + 1)
@@ -167,7 +184,9 @@ def fit_stem_centerline(points):
 
 
 def geodesic_order(points, stem, k_nn=12):
-    """Approximate intrinsic leaf geodesic coordinate from stem attachment via kNN + Dijkstra."""
+    """从靠近茎秆的叶基出发，用近邻图最短路近似叶片测地次序。
+
+    Approximate intrinsic leaf geodesic coordinate from stem attachment via kNN + Dijkstra."""
     tree = cKDTree(points)
     dist, idx = tree.query(points, k=min(k_nn + 1, len(points)))
     spacing = float(np.median(dist[:, 1]))
@@ -195,7 +214,9 @@ def geodesic_order(points, stem, k_nn=12):
 
 
 def reparameterize_arc_length(curve, n_samples=400):
-    """Approximate arc-length reparameterization by sampled chord lengths and spline refit."""
+    """以采样弦长近似弧长，重新拟合曲线参数。
+
+    Approximate arc-length reparameterization by sampled chord lengths and spline refit."""
     t0, t1 = float(curve.t[curve.k]), float(curve.t[-curve.k - 1])
     ts = np.linspace(t0, t1, n_samples)
     pts = curve(ts)
@@ -205,7 +226,9 @@ def reparameterize_arc_length(curve, n_samples=400):
 
 
 def project_points_to_curve(points, curve, s_max, n_init=300, n_newton=5):
-    """Approximate nearest-curve projection with sampled initialization and finite Newton steps."""
+    """以离散最近点初始化，再有限次牛顿迭代求曲线正交投影。
+
+    Approximate nearest-curve projection with sampled initialization and finite Newton steps."""
     grid_s = np.linspace(0.0, s_max, n_init)
     grid_p = curve(grid_s)
     _, idx = cKDTree(grid_p).query(points)
@@ -226,7 +249,9 @@ def project_points_to_curve(points, curve, s_max, n_init=300, n_newton=5):
 
 
 def _farthest_point_sample(points, m, seed=2026):
-    """Deterministic greedy Farthest Point Sampling (FPS) for uniform skeleton seeding."""
+    """确定性最远点采样，为骨架提供分布均匀的初始节点。
+
+    Deterministic greedy Farthest Point Sampling (FPS) for uniform skeleton seeding."""
     n = len(points)
     if n <= m:
         return points.copy()
@@ -242,7 +267,9 @@ def _farthest_point_sample(points, m, seed=2026):
 
 
 def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
-    """L1-Medial Skeleton contraction (Huang et al. 2013, ACM TOG).
+    """通过 L1 中值收缩估计叶片骨架节点。
+
+    L1-Medial Skeleton contraction (Huang et al. 2013, ACM TOG).
 
     Contracts the noisy, incomplete blade point cloud toward its 1D L1-median spine using
     locally weighted Weiszfeld attraction combined with directional linearity repulsion.
@@ -276,7 +303,7 @@ def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
         beta = phi / np.maximum(D_xx ** 2, (0.06 * h) ** 2)
         np.fill_diagonal(beta, 0.0)
 
-        # Compute local directional linearity sigma_i = lambda_max / sum(lambda) (Huang et al. 2013 Eq. 5).
+        # 局部方向线性度 sigma_i = lambda_max / sum(lambda)，见 Huang 等 2013 式 5。
         repulsion = np.zeros_like(X)
         b_sum = np.sum(beta, axis=1)
         for i in range(m):
@@ -302,7 +329,9 @@ def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
 
 
 def _axis_midrib(points, stem, axis, regularized=False):
-    """Data-supported fallback when contracted skeleton nodes lose blade extent.
+    """骨架丢失叶身范围时，以数据支撑的主轴坐标回退估计中脉。
+
+    Data-supported fallback when contracted skeleton nodes lose blade extent.
 
     Section medians follow the dominant spatial coordinate, so an incomplete
     skeleton cannot introduce a loop inside an otherwise unfolded blade.
@@ -329,7 +358,9 @@ def _axis_midrib(points, stem, axis, regularized=False):
 
 
 def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, seed=2026, stabilize=False):
-    """L1-Medial Skeleton (Huang et al. 2013) + Geodesic ordering + Principal Curve refinement."""
+    """组合骨架、测地排序和主曲线迭代，提取叶片中脉。
+
+    L1-Medial Skeleton (Huang et al. 2013) + Geodesic ordering + Principal Curve refinement."""
     if stabilize:
         _, _, axes = np.linalg.svd(points - np.median(points, axis=0), full_matrices=False)
         fallback = _axis_midrib(points, stem, axes[0], regularized=True)
@@ -343,7 +374,7 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
         order = np.argsort(geo)
         skel_ord = skel[order]
         geo_ord = geo[order]
-        # Bin ordered L1 skeleton nodes along geodesic coordinate to avoid near-duplicate knots.
+        # 沿测地坐标对排序后的 L1 骨架分箱，避免几乎重合的样条节点。
         nb_s = min(28, max(8, len(skel_ord) // 4))
         edges_s = np.linspace(geo_ord[0], geo_ord[-1], nb_s + 1)
         nodes = np.asarray([
@@ -364,7 +395,7 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
     curve, lam = fit_pspline_gcv(s0, nodes)
     curve, length = reparameterize_arc_length(curve)
 
-    # Extend both ends linearly along endpoint tangents so terminal leaf points are never clipped by L1 shrinkage.
+    # 沿端点切向延长两端，避免 L1 收缩裁掉终端叶点。
     t_start = unit(curve(0.0, nu=1))
     t_end = unit(curve(length, nu=1))
     p_ext = np.vstack([
@@ -397,8 +428,8 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
         s_proj = project_points_to_curve(points, curve, length)
         s_lo, s_hi = 0.0, length
 
-    # Contraction can erase a sparse disconnected tip or collapse a broad blade
-    # into a loop. Check the result against the *input*, not just the skeleton.
+    # 骨架收缩可能丢失稀疏断开的叶尖，或令宽叶片折成环。
+    # 因此需对照原始输入范围检查，不能只检查骨架本身。
     _, _, axes = np.linalg.svd(points - np.median(points, axis=0), full_matrices=False)
     axis = axes[0]
     axial_points = points @ axis
@@ -416,7 +447,9 @@ def extract_midrib(points, stem, max_graph_points=4500, n_principal_iters=2, see
 
 
 def double_reflection_rmf(points, tangents, n0=None):
-    """Rotation Minimizing Frame via Double Reflection (Wang et al. 2008, ACM TOG)."""
+    """用双反射构造沿曲线平行运输的最小旋转标架。
+
+    Rotation Minimizing Frame via Double Reflection (Wang et al. 2008, ACM TOG)."""
     m = len(points)
     T = unit(tangents)
     N = np.zeros_like(T)
@@ -446,15 +479,19 @@ def double_reflection_rmf(points, tangents, n0=None):
 
 
 class MovingFrame:
-    """Twist-free RMF aligned to measured point-cloud surface normals."""
+    """保存沿弧长变化的无扭转局部坐标系。
+
+    Twist-free RMF aligned to measured point-cloud surface normals."""
 
     def __init__(self, s_grid, T_grid, B_grid, N_grid):
+        """保存采样弧长、标架向量与滚转角插值器。"""
         self.s_grid = np.asarray(s_grid, dtype=float)
         self.T_grid = np.asarray(T_grid, dtype=float)
         self.B_grid = np.asarray(B_grid, dtype=float)
         self.N_grid = np.asarray(N_grid, dtype=float)
 
     def evaluate(self, s):
+        """在指定弧长插值并返回局部切向、横向和法向。"""
         s = np.atleast_1d(np.asarray(s, dtype=float))
         s_clamped = np.clip(s, self.s_grid[0], self.s_grid[-1])
         t = unit(np.column_stack([np.interp(s_clamped, self.s_grid, self.T_grid[:, j]) for j in range(3)]))
@@ -465,14 +502,16 @@ class MovingFrame:
 
 
 def build_normal_aligned_frame(curve, length, points, s_proj, normals=None, n_grid=200):
-    """Build RMF (Wang et al. 2008) and align roll angle to measured leaf normals."""
+    """构造最小旋转标架，并按扫描法向对齐横向滚转。
+
+    Build RMF (Wang et al. 2008) and align roll angle to measured leaf normals."""
     s_grid = np.linspace(0.0, length, n_grid)
     c_grid = curve(s_grid)
     t_grid = unit(curve(s_grid, nu=1))
     T0, B0, N0 = double_reflection_rmf(c_grid, t_grid)
 
-    # Estimate per-section blade normal from supplied point normals (projected perpendicular to T0),
-    # or fallback to smallest cross-section covariance axis when normals are absent.
+    # 将扫描法向投影到垂直 T0 的截面，估计分段叶面法向；
+    # 无法向时使用截面协方差的最小特征轴。
     n_bins = min(30, max(10, len(points) // 100))
     bin_s = np.linspace(0.0, length, n_bins)
     win = max(length / (n_bins - 1), length * 0.06)
@@ -487,7 +526,7 @@ def build_normal_aligned_frame(curve, length, points, s_proj, normals=None, n_gr
         if normals is not None:
             nb = normals[sel]
             nb = nb - (nb @ tb)[:, None] * tb
-            # Unoriented normal principal direction via scatter matrix (invariant to +/- flips).
+            # 由散布矩阵求无定向法向主方向，对正负翻转不敏感。
             _, _, vt = np.linalg.svd(nb, full_matrices=False)
             n_est = vt[0]
         else:
@@ -506,14 +545,14 @@ def build_normal_aligned_frame(curve, length, points, s_proj, normals=None, n_gr
     valid_s = np.asarray(valid_s)
     raw_n = np.asarray(raw_n)
 
-    # Express aligned normal as smooth roll angle phi(s) relative to the twist-free RMF (N0, B0).
+    # 以相对无扭转标架 (N0, B0) 的平滑滚转角 phi(s) 表示对齐法向。
     N0_b = np.column_stack([np.interp(valid_s, s_grid, N0[:, j]) for j in range(3)])
     B0_b = np.column_stack([np.interp(valid_s, s_grid, B0[:, j]) for j in range(3)])
     cos_phi = np.sum(raw_n * N0_b, axis=1)
     sin_phi = np.sum(raw_n * B0_b, axis=1)
-    # Use 2*phi (period pi) to resolve 180-deg normal sign ambiguity smoothly across noisy sections.
+    # 使用二倍角消除相差 180 度的法向符号歧义。
     phi_raw = 0.5 * np.unwrap(2.0 * np.arctan2(sin_phi, cos_phi))
-    # Reject isolated section glitches with 3-point median before smooth GCV spline.
+    # 先做三点中值滤波去除孤立截面异常，再拟合 GCV 平滑样条。
     phi_clean = phi_raw.copy()
     for i in range(1, len(phi_raw) - 1):
         phi_clean[i] = float(np.median(phi_raw[i - 1 : i + 2]))

@@ -1,4 +1,6 @@
-"""Batch modeling pipeline with empirical prior calibration and export."""
+"""串联数据发现、逐株拟合、质量检查与结果导出。
+
+Batch modeling pipeline with empirical prior calibration and export."""
 import csv
 from pathlib import Path
 import numpy as np
@@ -10,7 +12,9 @@ from .viz import ensure_plotly_js, export_index_html, export_leaf_html, export_p
 
 
 def calibrate_dataset_prior(pairs):
-    """Calibrate Dornbusch (2011) shape prior from intact-tip leaves in the dataset."""
+    """从数据集完整叶尖样本标定共享叶形先验。
+
+    Calibrate Dornbusch (2011) shape prior from intact-tip leaves in the dataset."""
     intact_blades = []
     base_prior = MaizeShapePrior()
     for name, txt, csv_path in pairs:
@@ -37,6 +41,7 @@ def calibrate_dataset_prior(pairs):
 
 
 def export_leaf(folder, plant, leaf_id, result):
+    """导出单叶模型、网格、点云与质量记录。"""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     key = f"leaf_{leaf_id:02d}"
@@ -59,6 +64,7 @@ def export_leaf(folder, plant, leaf_id, result):
 
 
 def export_plant(folder, plant, stem, results):
+    """拼接整株结果并导出汇总表及查看页面。"""
     folder = Path(folder)
     verts = np.vstack([r["vertices"] for r in results.values()])
     offsets = np.cumsum([0] + [len(r["vertices"]) for r in results.values()])[:-1]
@@ -75,6 +81,7 @@ def export_plant(folder, plant, stem, results):
 
 
 def run(input_root, output, plant_name=None, leaf_id=None, cfg=None, calibrate_prior=True):
+    """发现输入并逐株重建，导出模型、质量报告与结果索引。"""
     cfg = cfg or ModelConfig()
     out = Path(output)
     out.mkdir(parents=True, exist_ok=True)

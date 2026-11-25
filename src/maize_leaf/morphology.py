@@ -1,4 +1,6 @@
-"""Maize leaf blade morphology priors and analytical completion models.
+"""玉米叶形先验、左右半宽提取与受约束的叶尖估计。
+
+Maize leaf blade morphology priors and analytical completion models.
 
 References:
 - Dornbusch et al. (2011) Annals of Botany 107(5): 865-873:
@@ -17,7 +19,9 @@ from .geometry import MovingFrame, double_reflection_rmf, fit_pspline_gcv, unit
 
 @dataclass
 class MaizeShapePrior:
-    """Species prior on dimensionless Dornbusch (2011) maize leaf shape parameters.
+    """保存无量纲 Dornbusch 玉米叶形先验及其离散程度。
+
+    Species prior on dimensionless Dornbusch (2011) maize leaf shape parameters.
 
     Configured engineering defaults can be empirically shrunk toward intact-leaf fits;
     they are not a claim that each constant was directly measured in a cited paper.
@@ -34,7 +38,9 @@ class MaizeShapePrior:
 
 @dataclass
 class DornbuschBlade:
-    """C1 piecewise power-law leaf width model (Dornbusch et al. 2011)."""
+    """用连续分段幂函数表示叶片的纵向宽度轮廓。
+
+    C1 piecewise power-law leaf width model (Dornbusch et al. 2011)."""
     length: float
     w_max: float
     xm: float
@@ -43,7 +49,9 @@ class DornbuschBlade:
     c2: float
 
     def width(self, s):
-        """Blade width w(s) at physical arc length s in [0, length]."""
+        """在物理弧长位置计算分段幂函数叶宽。
+
+        Blade width w(s) at physical arc length s in [0, length]."""
         s = np.asarray(s, dtype=float)
         u = np.clip(s / self.length, 0.0, 1.0)
         basal = self.w_max * (1.0 - (1.0 - self.k_lig) * ((self.xm - np.minimum(u, self.xm)) / self.xm) ** self.c2)
@@ -52,19 +60,24 @@ class DornbuschBlade:
 
     @property
     def form_factor(self):
-        """Exact integral form factor alpha = integral(w(s) ds) / (L * w_max)."""
+        """积分宽度函数，返回相对叶长与最大叶宽的形状系数。
+
+        Exact integral form factor alpha = integral(w(s) ds) / (L * w_max)."""
         a_basal = self.xm * (1.0 - (1.0 - self.k_lig) / (self.c2 + 1.0))
         a_distal = (1.0 - self.xm) * (self.c1 / (self.c1 + 1.0))
         return float(a_basal + a_distal)
 
     def to_dict(self):
+        """将叶形参数和补全状态转为可序列化字典。"""
         d = asdict(self)
         d["form_factor_alpha"] = self.form_factor
         return d
 
 
 def extract_width_profile(s_proj, lateral, length_obs, n_bins=32):
-    """Extract independent left/right half-width envelopes along arc length."""
+    """沿中脉提取独立的左右半宽包络与观测支持信息。
+
+    Extract independent left/right half-width envelopes along arc length."""
     edges = np.linspace(0.0, length_obs, n_bins + 1)
     s_mid, w_left, w_right, counts = [], [], [], []
     for a, b in zip(edges[:-1], edges[1:]):
@@ -79,7 +92,7 @@ def extract_width_profile(s_proj, lateral, length_obs, n_bins=32):
     s_mid = np.asarray(s_mid)
     w_left = np.maximum(np.asarray(w_left), 0.0)
     w_right = np.maximum(np.asarray(w_right), 0.0)
-    # Full observed width; only double the intact side when the opposite side is nearly absent (>75% deficit).
+    # 优先用完整观测宽度；仅对侧缺失超过 75% 时，将完整侧半宽加倍。
     w_sum = w_left + w_right
     asym = np.abs(w_left - w_right) / np.maximum(np.maximum(w_left, w_right), 1e-9)
     w_obs = np.where(asym > 0.75, 2.0 * np.maximum(w_left, w_right), w_sum)
@@ -88,7 +101,9 @@ def extract_width_profile(s_proj, lateral, length_obs, n_bins=32):
 
 
 def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completion=True):
-    """Fit Dornbusch (2011) blade model via MAP soft-L1 least squares + identifiable tip inversion.
+    """以稳健 MAP 拟合叶宽轮廓，并在可辨识条件下估计未观测叶尖。
+
+    Fit Dornbusch (2011) blade model via MAP soft-L1 least squares + identifiable tip inversion.
 
     To avoid (L, c1) collinearity blow-up when the distal tip is truncated, the truncated model M1
     anchors dimensionless shape parameters (xm, k_lig, c1, c2) tightly to the maize species prior
@@ -102,12 +117,13 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
     xm_obs = float(s_obs[int(np.argmax(w_obs))] / max(length_obs, 1e-9))
     tip_ratio = float(np.median(w_obs[-min(3, n):]) / scale)
 
-    # Analytical upper bound on missing tip length implied by Dornbusch distal power law at observed tip_ratio:
-    # w(u_obs)/w_max = 1 - ((u_obs - xm)/(1 - xm))^c1  =>  u_obs = xm + (1 - xm)*(1 - tip_ratio)^(1/c1)
+    # 按观测叶尖宽比和 Dornbusch 远端幂律推导缺失叶尖长度上界：
+    # 叶宽关系 w(u_obs)/w_max = 1 - ((u_obs-xm)/(1-xm))^c1，据此反求 u_obs。
     u_obs_est = prior.xm_mean + (1.0 - prior.xm_mean) * (max(1.0 - min(tip_ratio, 0.85), 0.05) ** (1.0 / prior.c1_mean))
     L_prior = float(np.clip(length_obs / max(u_obs_est, 0.65), length_obs, length_obs * 1.45))
 
     def _fit(free_length):
+        """对给定叶尖范围拟合受约束的叶形参数。"""
         if free_length:
             L_hi = min(length_obs * 1.45, L_prior * 1.15)
             x0 = np.array([L_prior, w_max0, prior.xm_mean, np.clip(float(w_obs[0] / scale), 0.25, 0.95),
@@ -126,6 +142,7 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
         x0 = np.clip(x0, lb + 1e-6, ub - 1e-6)
 
         def residuals(params):
+            """组装观测误差、平滑项及先验项的最小二乘残差。"""
             if free_length:
                 L, w_max, xm, k_lig, c1, c2 = params
             else:
@@ -151,9 +168,9 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
         err = (blade.width(s_obs) - w_obs) / scale
         rss = max(float(np.sum(err ** 2)), 1e-12)
         bic = n * np.log(rss / n) + k_params * np.log(n)
-        # An optimum pressed against the imposed length cap does not identify a
-        # missing tip. Returning that cap as a measured length creates large,
-        # unstable extensions after even an interior margin is removed.
+        # 最优值触及人为长度上界，并不能辨识实际缺失叶尖。
+        # 将此上界当成测得叶长，可能在仅去除内部叶缘时产生
+        # 较大且不稳定的延长，因此需显式标记边界受限状态。
         blade.completion_at_length_bound = bool(free_length and
             (L_hi - blade.length) <= 1e-3 * (L_hi - length_obs))
         return blade, bic
@@ -164,7 +181,7 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
         return blade_intact
 
     blade_ext, bic_ext = _fit(free_length=True)
-    # Require positive BIC evidence (delta BIC > 4, Kass & Raftery 1995) before extending L.
+    # 仅当 delta BIC > 4 时延长叶长，证据阈值参见 Kass 与 Raftery 1995。
     if bic_ext + 4.0 < bic_intact:
         blade_ext.completion_status = "boundary_limited" if blade_ext.completion_at_length_bound else "estimated"
         return blade_ext
@@ -172,13 +189,15 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
 
 
 def calibrate_prior_from_leaves(blades, base_prior=None, min_samples=10):
-    """Empirical Bayes calibration shrinking toward literature maize prior (Dornbusch 2011)."""
+    """从完整叶形估计经验先验，并向文献先验收缩。
+
+    Empirical Bayes calibration shrinking toward literature maize prior (Dornbusch 2011)."""
     lit = base_prior or MaizeShapePrior()
     valid = [b for b in blades if 0.20 < b.xm < 0.55 and 1.2 < b.c1 < 3.2 and 0.65 <= b.form_factor <= 0.82]
     n = len(valid)
     if n < 3:
         return lit
-    # Shrinkage weight w = n / (n + min_samples) prevents small noisy subsets from collapsing the prior.
+    # 收缩权重 n/(n+min_samples) 防止小型含噪子集使先验塌缩。
     w = n / (n + min_samples)
     xm = np.array([b.xm for b in valid])
     klig = np.array([b.k_lig for b in valid])
@@ -197,7 +216,9 @@ def calibrate_prior_from_leaves(blades, base_prior=None, min_samples=10):
 
 
 def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=240):
-    """Engineering damped-inclination extension from L_obs to L_total.
+    """以阻尼倾角延长参考中脉和标架，供历史补全策略使用。
+
+    Engineering damped-inclination extension from L_obs to L_total.
 
     Fit the distal 25% inclination slope, limit upward bending, and integrate
     unit tangents. This is not a verbatim implementation of Prevot or ADEL-Maize.
@@ -209,7 +230,7 @@ def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=
     p_obs = curve(s_obs_grid)
     t_obs = unit(curve(s_obs_grid, nu=1))
 
-    # Estimate distal inclination and curvature rate on last 25% of observed arc length.
+    # 在观测弧长最后 25% 范围估计远端倾角和曲率变化率。
     tail_mask = s_obs_grid >= 0.75 * length_obs
     s_tail = s_obs_grid[tail_mask] - length_obs
     t_tail = t_obs[tail_mask]
@@ -217,9 +238,9 @@ def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=
     horiz_tail = t_tail[:, :2]
     az_vec = unit(np.mean(horiz_tail, axis=0))
 
-    # Linear fit of inclination theta(s) = theta_end + kappa * (s - L_obs), capped at vertical droop (-pi/2).
+    # 线性拟合末端倾角，最多延长到垂直下垂角 -pi/2。
     kappa = float(np.polyfit(s_tail, theta_tail, 1)[0]) if len(s_tail) >= 3 else 0.0
-    # Maize tips droop downward under gravity; prevent unphysical upward curl in extrapolation.
+    # 按重力下垂的工程假设限制不合理的向上卷曲。
     kappa = min(kappa, 0.0)
     theta_end = float(theta_tail[-1])
 
@@ -233,7 +254,7 @@ def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=
     p_curr = p_obs[-1].copy()
     for s_val in s_ext:
         delta = s_val - length_obs
-        # Exponentially damped downward curvature toward vertical droop.
+        # 将向下曲率指数衰减，平滑趋向垂直下垂。
         theta = max(-0.48 * np.pi, theta_end + kappa * delta * np.exp(-0.5 * delta / max(length_obs, 1e-6)))
         t_vec = unit(np.array([np.cos(theta) * az_vec[0], np.cos(theta) * az_vec[1], np.sin(theta)]))
         p_curr = p_curr + ds * t_vec
@@ -244,7 +265,7 @@ def extrapolate_midrib_and_frame(curve, frame, length_obs, length_total, n_grid=
     p_all = np.vstack([p_obs, np.asarray(p_ext)])
     ext_curve, _ = fit_pspline_gcv(s_all, p_all, n_basis=min(22, len(curve.c) + 6), lam_bounds=(1e-8, 1e-2))
 
-    # Extend twist-free frame smoothly from the observed endpoint frame via Double Reflection RMF.
+    # 从观测端点标架出发，用双反射 RMF 平滑延长无扭转标架。
     t_end, _, n_end = frame.evaluate(length_obs)
     p_ext_full = np.vstack([p_obs[-1:], np.asarray(p_ext)])
     t_ext_full = np.vstack([t_end, np.asarray(t_ext)])

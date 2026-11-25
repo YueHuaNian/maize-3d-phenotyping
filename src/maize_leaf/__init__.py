@@ -1,2 +1,2 @@
-"""Literature-backed 3D maize leaf modeling and completion."""
+"""玉米叶片三维重建、表型提取与姿态分类核心算法包。"""
 __version__ = "2.0.0"

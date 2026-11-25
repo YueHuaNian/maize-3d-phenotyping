@@ -1,4 +1,6 @@
-"""Standalone Euclidean clustering parameter sensitivity benchmark on real maize leaves.
+"""对欧氏聚类半径和次簇阈值进行分级敏感性验证。
+
+Standalone Euclidean clustering parameter sensitivity benchmark on real maize leaves.
 
 Evaluates radius formulations (pure spacing, pure bounding-box diagonal, hybrid,
 and robust-diagonal hybrid) combined with secondary-cluster retention thresholds
@@ -24,7 +26,6 @@ from concurrent.futures import ProcessPoolExecutor
 import csv
 import os
 from pathlib import Path
-import sys
 import time
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -32,8 +33,8 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 实验脚本（去噪阶段）：欧氏连通聚类半径与次簇阈值敏感性标定
+ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import numpy as np
@@ -44,11 +45,13 @@ from maize_leaf.geometry import fit_stem_centerline, sor_filter
 from maize_leaf.io import discover, load_pair, write_json
 from maize_leaf.pipeline import calibrate_dataset_prior
 from maize_leaf.quality import surface_support_diagnostics
-from maize_leaf.surface import MaizeLeafModel, ModelConfig, fit_leaf, leaf_mesh_grid
+from maize_leaf.surface import MaizeLeafModel, ModelConfig, fit_leaf
 
 
 def build_radius_configs():
-    """Return list of (r_family, alpha_sp, alpha_d) radius definitions."""
+    """枚举点间距、包围盒尺度及混合半径规则。
+
+    Return list of (r_family, alpha_sp, alpha_d) radius definitions."""
     cfgs = []
     # Pure spacing: r = alpha_sp * spacing
     for a_sp in (2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0):
@@ -68,7 +71,9 @@ def build_radius_configs():
 
 
 def build_minsize_configs():
-    """Return list of (ms_family, n_abs, rho_frac) secondary-cluster retention rules."""
+    """枚举次簇保留的绝对点数和比例阈值。
+
+    Return list of (ms_family, n_abs, rho_frac) secondary-cluster retention rules."""
     cfgs = [
         ("main_only", -1, 1.0),
     ]
@@ -91,6 +96,7 @@ def build_minsize_configs():
 
 
 def compute_radius(r_family, alpha_sp, alpha_d, spacing, diam, rob_diam):
+    """按候选规则从点间距和叶片尺度计算连接半径。"""
     if r_family == "pure_sp":
         return alpha_sp * spacing
     if r_family == "pure_diam":
@@ -103,6 +109,7 @@ def compute_radius(r_family, alpha_sp, alpha_d, spacing, diam, rob_diam):
 
 
 def keep_mask_from_components(lbl, sizes, n_pts, ms_family, n_abs, rho_frac):
+    """由连通分量大小和候选阈值生成保留掩码。"""
     main_lbl = int(np.argmax(sizes))
     if ms_family == "main_only":
         return lbl == main_lbl
@@ -111,7 +118,9 @@ def keep_mask_from_components(lbl, sizes, n_pts, ms_family, n_abs, rho_frac):
 
 
 def cluster_and_sor(points, normals, r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac):
-    """Apply specified Euclidean clustering followed by calibrated per-fragment MAD-SOR (k=8, 3.5)."""
+    """执行候选连通簇筛选，再用固定标定参数逐断片去噪。
+
+    Apply specified Euclidean clustering followed by calibrated per-fragment MAD-SOR (k=8, 3.5)."""
     _, uniq_idx = np.unique(points, axis=0, return_index=True)
     uniq_idx = np.sort(uniq_idx)
     p = points[uniq_idx]
@@ -144,7 +153,9 @@ def cluster_and_sor(points, normals, r_family, alpha_sp, alpha_d, ms_family, n_a
 
 
 def build_level2_perturbed_leaf(p_clean, n_clean, stem_tree, spacing, rng):
-    """Build controlled structural perturbation on clean leaf inliers.
+    """在干净叶点上加入受控结构扰动以评价去噪。
+
+    Build controlled structural perturbation on clean leaf inliers.
 
     Returns two paired point clouds sharing identical main blade, detached tip,
     and near/medium noise patches:
@@ -196,6 +207,7 @@ def build_level2_perturbed_leaf(p_clean, n_clean, stem_tree, spacing, rng):
         dirs /= np.maximum(np.linalg.norm(dirs, axis=1, keepdims=True), 1e-12)
 
     def _place_patch(n_min, n_max, off_lo_sp, off_hi_sp, min_clear_sp, max_clear_sp, near_base=False):
+        """按指定几何位置放置局部扰动点簇。"""
         csize = int(rng.integers(n_min, n_max + 1))
         # Candidate anchors: optionally bias close patch near stem/proximal half where mislabels occur
         cand_pool = np.arange(len(leaf_pts))
@@ -259,7 +271,9 @@ def build_level2_perturbed_leaf(p_clean, n_clean, stem_tree, spacing, rng):
 
 
 def precompute_leaf_records(input_root, ref_model_root, seed=2026):
-    """Load all 14 plants / 90 leaves, reference proxies, and paired L2 stress clouds."""
+    """读取叶片并预计算参考尺度、扰动和后续参数扫描所需数据。
+
+    Load all 14 plants / 90 leaves, reference proxies, and paired L2 stress clouds."""
     rng = np.random.default_rng(seed)
     pairs = discover(input_root)
     leaves = []
@@ -296,7 +310,7 @@ def precompute_leaf_records(input_root, ref_model_root, seed=2026):
             mpath = ref_model_root / f"plant_{plant_name}" / "leaves" / f"leaf_{lid:02d}_model.npz"
             if mpath.is_file():
                 model = MaizeLeafModel.load(mpath)
-                sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+                sv, _ = model.mesh_grid(220, 61)
                 d_surf_sp = cKDTree(model.evaluate(sv)).query(p)[0] / max(spacing, 1e-12)
                 clean_inlier_mask = d_surf_sp <= 2.0
                 nat_outlier_mask = d_surf_sp > 5.0
@@ -312,6 +326,7 @@ def precompute_leaf_records(input_root, ref_model_root, seed=2026):
 
             # Spacing & diagonals on L2 clouds
             def _geom_stats(pts):
+                """汇总候选模型的几何和贴合指标。"""
                 t = cKDTree(pts)
                 sp_ = float(np.median(t.query(pts, k=min(2, len(pts)))[0][:, -1]))
                 d_ = float(np.linalg.norm(np.ptp(pts, axis=0)))
@@ -350,7 +365,9 @@ def precompute_leaf_records(input_root, ref_model_root, seed=2026):
 
 
 def _eval_radius_group(args):
-    """Evaluate one radius config across all min-size rules on all 90 leaves (L1 + L2)."""
+    """对一个半径规则遍历次簇阈值，评价原始扫描与受控扰动。
+
+    Evaluate one radius config across all min-size rules on all 90 leaves (L1 + L2)."""
     r_cfg, minsize_cfgs, leaf_pack = args
     r_family, alpha_sp, alpha_d = r_cfg
 
@@ -386,6 +403,7 @@ def _eval_radius_group(args):
     rad_inflation_p95 = float(np.quantile([x[2] for x in wf_comps], 0.95))
 
     def _f1_mcc(tp_, fp_, tn_, fn_):
+        """由混淆计数计算去噪的 F1 和 MCC 指标。"""
         prec = tp_ / max(tp_ + fp_, 1)
         rec = tp_ / max(tp_ + fn_, 1)
         f1 = 2.0 * prec * rec / max(prec + rec, 1e-12)
@@ -541,7 +559,9 @@ def _eval_radius_group(args):
 
 
 def eval_no_cluster_baseline(leaves):
-    """Evaluate no_cluster baseline (0% removed by clustering) on L1 & L2."""
+    """评价跳过连通簇筛选的基线，用于分离该阶段贡献。
+
+    Evaluate no_cluster baseline (0% removed by clustering) on L1 & L2."""
     return {
         "r_family": "no_cluster",
         "alpha_sp": 0.0,
@@ -583,7 +603,9 @@ def eval_no_cluster_baseline(leaves):
 
 def fit_leaf_with_custom_cluster(points, stem, normals, prior, cfg, leaf_id,
                                  r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac):
-    """Run fit_leaf using custom Euclidean clustering + fixed calibrated MAD-SOR."""
+    """用候选聚类规则与固定 SOR 拟合单叶。
+
+    Run fit_leaf using custom Euclidean clustering + fixed calibrated MAD-SOR."""
     import maize_leaf.surface as surf_mod
 
     cleaned_p, cleaned_n = cluster_and_sor(
@@ -599,6 +621,7 @@ def fit_leaf_with_custom_cluster(points, stem, normals, prior, cfg, leaf_id,
 
 
 def _eval_ref_one(args):
+    """工作进程拟合单片干净参考叶面。"""
     key, clean_pts, clean_nrm, stem, leaf_id, prior, cfg = args
     res, _ = fit_leaf_with_custom_cluster(
         clean_pts, stem, clean_nrm, prior, cfg, leaf_id,
@@ -613,6 +636,7 @@ def _eval_ref_one(args):
 
 
 def _eval_l3a_one(args):
+    """工作进程评价单配置、单叶的含噪端到端重建。"""
     (label, r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac,
      pert_pts, pert_nrm, stem, leaf_id, clean_pts, ref_len, ref_wid, ref_area, prior, cfg) = args
     try:
@@ -621,7 +645,7 @@ def _eval_l3a_one(args):
             r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac
         )
         model = res["model"]
-        sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+        sv, _ = model.mesh_grid(220, 61)
         s_pts = model.evaluate(sv)
         d_to_surf = cKDTree(s_pts).query(clean_pts)[0]
         return (
@@ -639,6 +663,7 @@ def _eval_l3a_one(args):
 
 
 def _eval_l3b_one(args):
+    """工作进程评价单配置、单叶的原始扫描重建。"""
     (label, r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac,
      plant, leaf_id, raw_pts, raw_nrm, stem, clean_ref, prior, cfg) = args
     try:
@@ -647,7 +672,7 @@ def _eval_l3b_one(args):
             r_family, alpha_sp, alpha_d, ms_family, n_abs, rho_frac
         )
         model = res["model"]
-        sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+        sv, _ = model.mesh_grid(220, 61)
         s_pts = model.evaluate(sv)
         s_tree = cKDTree(s_pts)
         d_raw = s_tree.query(raw_pts)[0]
@@ -670,7 +695,9 @@ def _eval_l3b_one(args):
 
 
 def select_best_by_family(grid_rows):
-    """Select top configuration per radius family under strict real-scan clean-preservation guards."""
+    """在真实扫描保留约束下选取各半径族的候选配置。
+
+    Select top configuration per radius family under strict real-scan clean-preservation guards."""
     best = {}
     for fam in ("pure_sp", "pure_diam", "hybrid", "hybrid_robD"):
         sub = [r for r in grid_rows if r["r_family"] == fam]
@@ -689,6 +716,7 @@ def select_best_by_family(grid_rows):
 
 
 def run_level3a(leaves, candidates, input_root, workers=10):
+    """按植株分层并行执行含噪端到端重建验证。"""
     pairs = discover(input_root)
     prior, _ = calibrate_dataset_prior(pairs)
     cfg = ModelConfig(nu=90, nv=25, allow_tip_completion=True)
@@ -764,6 +792,7 @@ def run_level3a(leaves, candidates, input_root, workers=10):
 
 
 def run_level3b_full90(leaves, finalists, prior, cfg, workers=10):
+    """对全量原始叶扫描并行执行最终候选重建审计。"""
     summary = []
     per_leaf_map = {}
     with ProcessPoolExecutor(max_workers=workers) as ex:
@@ -828,7 +857,8 @@ def run_level3b_full90(leaves, finalists, prior, cfg, workers=10):
     return summary
 
 
-def main():
+def main(argv=None):
+    """解析候选配置与输出目录，运行三级欧氏聚类标定。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=ROOT / "dataset")
     parser.add_argument("--ref-models", type=Path, default=ROOT / "outputs/maize_v2")
@@ -837,7 +867,7 @@ def main():
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--skip-l3", action="store_true")
     parser.add_argument("--skip-l3b", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     t_start = time.time()
     print("Loading 14 plants / 90 leaves and building Level 1 & Level 2 datasets...", flush=True)
@@ -902,6 +932,7 @@ def main():
     best_by_fam = select_best_by_family(grid_rows)
 
     def _fmt(tag, r):
+        """将可选标定指标格式化为终端输出。"""
         return (
             f"  {tag:16s} | {r['r_family']:11s}({r['alpha_sp']:g},{r['alpha_d']:g}) "
             f"{r['ms_family']:10s}({r['n_abs']},{r['rho_frac']:g}) | "
@@ -1014,7 +1045,3 @@ def main():
     }
     write_json(args.output / "euclidean_cluster_report.json", report)
     print(f"\nSaved report to {args.output / 'euclidean_cluster_report.json'} (total {report['total_elapsed_s']}s)", flush=True)
-
-
-if __name__ == "__main__":
-    main()

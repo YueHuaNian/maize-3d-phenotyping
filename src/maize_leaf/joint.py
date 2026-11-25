@@ -1,4 +1,6 @@
-"""Joint robust nonlinear fitting of midrib, roll frame, width, and camber.
+"""联合优化中脉、横向宽度与标架滚转角。
+
+Joint robust nonlinear fitting of midrib, roll frame, width, and camber.
 
 Simultaneously optimizes:
   - Midrib lateral & normal B-spline offsets (delta_b, delta_n)
@@ -21,6 +23,7 @@ from .morphology import DornbuschBlade, MaizeShapePrior, extract_width_profile, 
 
 
 def _bspline_basis(u, n_basis, degree):
+    """构造给定节点与阶数的 B 样条设计矩阵。"""
     u = np.clip(np.asarray(u, dtype=float), 0.0, 1.0)
     k = min(degree, max(1, n_basis - 1))
     knots = np.r_[
@@ -29,19 +32,21 @@ def _bspline_basis(u, n_basis, degree):
         np.repeat(1.0, k + 1),
     ]
     B = BSpline.design_matrix(u, knots, k).toarray()
-    # Analytic derivative basis with respect to u via spline basis differentiation.
+    # 通过样条求导构造相对 u 的解析导数基。
     I = np.eye(n_basis)
     dB = np.column_stack([BSpline(knots, I[:, j], k).derivative(1)(u) for j in range(n_basis)])
     return B, dB, knots
 
 
 def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, prior=None):
-    """Jointly refine midrib, roll frame, and blade width over observed span [0, length0]."""
+    """在观测范围内联合优化中脉、滚转角与叶片宽度。
+
+    Jointly refine midrib, roll frame, and blade width over observed span [0, length0]."""
     prior = prior or MaizeShapePrior()
     if len(points) < 60 or length0 <= 1e-8:
         return midrib0, frame0, length0, s_proj0
 
-    # Initial projection in frame0 for width initialization & anchor edge points.
+    # 在初始标架投影，初始化宽度与边缘锚点。
     _, b_all, n_all = frame0.evaluate(s_proj0)
     res_all = points - midrib0(s_proj0)
     lat_all = np.sum(res_all * b_all, axis=1)
@@ -51,7 +56,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     blade0 = fit_dornbusch_blade(prof0["s"], prof0["w_obs"], length0, prior=prior, allow_tip_completion=False)
     w_scale = max(blade0.w_max, 1e-6)
 
-    # Stratified subsample along s_proj0 for fast vectorized optimization.
+    # 沿纵向参数分层抽样，加速向量化优化。
     order = np.argsort(s_proj0)
     n_opt = min(len(points), 1200)
     sel = order[np.linspace(0, len(points) - 1, n_opt, dtype=int)]
@@ -61,7 +66,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     c0_s = midrib0(u_s * length0)
     t0_s, b0_s, n0_s = frame0.evaluate(u_s * length0)
 
-    # Fixed 3D edge anchors for piecewise-smooth margin residuals.
+    # 固定三维边缘锚点，构造分段光滑的叶缘残差。
     nb = 22
     edges = np.linspace(0.0, length0, nb + 1)
     pL_list, pR_list, u_bin_list = [], [], []
@@ -87,7 +92,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     c0_bin = midrib0(u_bin * length0)
     _, b0_bin, n0_bin = frame0.evaluate(u_bin * length0)
 
-    # Basis matrices (constant throughout optimization).
+    # 基函数矩阵在优化期间保持不变。
     km, kp, kq = 8, 6, 5
     Bm_s, _, _ = _bspline_basis(u_s, km, 3)
     Bm_bin, _, _ = _bspline_basis(u_bin, km, 3)
@@ -103,7 +108,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     D2_p = np.diff(np.eye(kp), n=2, axis=0)
     D2_q = np.diff(np.eye(kq), n=2, axis=0)
 
-    # Parameter vector: [db(8), dn(8), dphi(6), q_v(5), q_v2(5), w_max, xm, k_lig, c1, c2] (37 params).
+    # 参数向量含 db(8)、dn(8)、dphi(6)、q_v(5)、q_v2(5) 和五个叶形参数，共 37 维。
     x0 = np.r_[
         np.zeros(km),
         np.zeros(km),
@@ -143,13 +148,14 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
     ]
     x0 = np.clip(x0, lb + 1e-6, ub - 1e-6)
 
-    # Balance data residuals (sqrt(n_opt)) vs bin-level margin and smoothness priors.
+    # 按 sqrt(n_opt) 平衡点级数据残差、分箱叶缘约束与平滑先验。
     w_pt = 1.0 / np.sqrt(max(n_opt, 1))
     w_nrm = 0.35 / np.sqrt(max(n_opt, 1))
     w_bin = 1.25 / np.sqrt(max(len(u_bin), 1))
     s_bin = u_bin * length0
 
     def residuals(x):
+        """组装观测误差、平滑项及先验项的最小二乘残差。"""
         db = x[:km]
         dn = x[km : 2 * km]
         dp = x[2 * km : 2 * km + kp]
@@ -159,7 +165,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
 
         blade = DornbuschBlade(length0, w_max, xm, k_lig, c1, c2)
 
-        # 1. Surface height & normal residuals over sampled points.
+        # 第一组残差：采样点的叶面高度与法向。
         off_b = Bm_s @ db
         off_n = Bm_s @ dn
         c_s = c0_s + off_b[:, None] * b0_s + off_n[:, None] * n0_s
@@ -179,7 +185,7 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
         q_pred = a1 * v_s + a2 * (v_s ** 2)
         res_surf = w_pt * (h_s - q_pred) / w_scale
 
-        # Analytical normal alignment using scan unit normals (invariant to +/- sign flips).
+        # 使用扫描单位法向约束解析法向，对正负翻转不敏感。
         if n_scan is not None:
             dq_dv = a1 + 2.0 * a2 * v_s
             dq_du = (dBq_s @ qv) * v_s + (dBq_s @ qv2) * (v_s ** 2)
@@ -187,12 +193,12 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
             slope_t = dq_du / length0
             n_surf = n_s - slope_b[:, None] * b_s - slope_t[:, None] * t0_s
             n_surf = n_surf / np.maximum(np.linalg.norm(n_surf, axis=1, keepdims=True), 1e-12)
-            # ||n_surf x n_scan|| = |sin(angle)|; invariant to normal sign.
+            # 法向叉积模等于夹角正弦绝对值，不依赖法向符号。
             res_nrm = w_nrm * np.linalg.norm(np.cross(n_surf, n_scan), axis=1)
         else:
             res_nrm = np.empty(0)
 
-        # 2. Asymmetric differentiable margin envelope residuals across longitudinal bins.
+        # 第二组残差：纵向分箱上的非对称可微叶缘包络。
         c_bin = c0_bin + (Bm_bin @ db)[:, None] * b0_bin + (Bm_bin @ dn)[:, None] * n0_bin
         phi_b = Bp_bin @ dp
         b_bin = np.cos(phi_b)[:, None] * b0_bin + np.sin(phi_b)[:, None] * n0_bin
@@ -200,18 +206,18 @@ def joint_optimize_geometry(points, normals, midrib0, frame0, length0, s_proj0, 
         rR = np.sum((pR - c_bin) * b_bin, axis=1)
         half_w = 0.5 * blade.width(s_bin)
 
-        # Enclosure penalty: observed points must not lie outside +/- w/2.
+        # 包络惩罚：观测点不应超出正负半宽范围。
         viol_L = np.maximum(0.0, -half_w - rL) / w_scale
         viol_R = np.maximum(0.0, rR - half_w) / w_scale
-        # Surviving-side envelope match: whichever margin extends farther out anchors half_w.
+        # 以保留下来的较外侧叶缘约束半宽。
         surv_err = np.where(-rL >= rR, rL + half_w, half_w - rR) / w_scale
-        # Robust saturated bilateral balance: centers midrib where both margins exist,
-        # but saturates on one-sided notches so notch doesn't pull midrib inward.
+        # 双侧均有观测时用饱和稳健平衡项校正中脉；
+        # 单侧缺口处惩罚饱和，避免缺口把中脉向内拉偏。
         bilat_L = 0.12 * np.tanh(((rL + half_w) / w_scale) / 0.12)
         bilat_R = 0.12 * np.tanh(((half_w - rR) / w_scale) / 0.12)
         res_edges = w_bin * np.r_[1.6 * viol_L, 1.6 * viol_R, 1.2 * surv_err, 0.35 * bilat_L, 0.35 * bilat_R]
 
-        # 3. Midrib bending smoothness, gentle shift anchor, roll smoothness, camber prior, Dornbusch prior.
+        # 第三组残差：中脉弯曲、位移锚定、滚转平滑、拱起及 Dornbusch 先验。
         c_g = c0_g + (Bm_g @ db)[:, None] * b0_g + (Bm_g @ dn)[:, None] * n0_g
         res_bend = (1.6 / w_scale) * (D2_g @ c_g).ravel()
         res_anchor = np.r_[0.10 * db / w_scale, 0.25 * dn / w_scale, 0.20 * dp, 0.40 * (D2_p @ dp)]

@@ -1,4 +1,6 @@
-"""Unit tests for literature-backed maize leaf modeling components."""
+"""验证去噪、连续几何、支撑域限制与端到端建模。
+
+Unit tests for literature-backed maize leaf modeling components."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,13 +10,15 @@ from scipy.spatial import cKDTree
 from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, extract_midrib, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
 from maize_leaf.morphology import DornbuschBlade, MaizeShapePrior, fit_dornbusch_blade
 from maize_leaf.pipeline import run
-from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, leaf_mesh_grid, surface_orientation_diagnostics, triangle_areas
+from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, leaf_mesh_grid, surface_orientation_diagnostics, triangle_areas, restrict_to_scan_support
 from maize_leaf.geometry import MovingFrame
 from maize_leaf.quality import mesh_diagnostics, surface_support_diagnostics
 
 
 def make_synthetic_maize_leaf():
-    """Analytical maize blade following Dornbusch (2011) width + parabolic droop + transverse arch."""
+    """构造解析叶宽、下垂中脉与横向拱起的合成叶点云。
+
+    Analytical maize blade following Dornbusch (2011) width + parabolic droop + transverse arch."""
     L = 1.0
     blade = DornbuschBlade(length=L, w_max=0.14, xm=0.35, k_lig=0.60, c1=1.8, c2=2.0)
     s_vals = np.linspace(0.0, L, 95)
@@ -47,7 +51,37 @@ def make_synthetic_maize_leaf():
 
 
 class MaizeLeafV2Tests(unittest.TestCase):
+    """覆盖连续叶面、噪声处理、支撑域和序列化的几何回归集。"""
+    def test_supported_domain_preserves_asymmetric_scan_and_leaves_truncated_tip_open(self):
+        """检查支撑域保留左右不对称且截断叶尖保持开放。"""
+        s = np.linspace(0., 1.2, 60)
+        controls = np.column_stack([np.linspace(0., 1.2, 4), np.zeros(4), np.zeros(4)])
+        curve = BSpline(np.r_[np.zeros(4), np.full(4, 1.2)], controls, 3)
+        t, b, n = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
+        tps = ThinPlateSplineGCV(np.array([[0, 0], [1, 0], [0, 1]]), np.zeros(3), np.zeros(3), 1., 3.)
+        model = MaizeLeafModel(curve, MovingFrame(s, t, b, n),
+                               DornbuschBlade(1.2, .2, .35, .6, 1.8, 2.), tps, .8)
+        ss, vv = np.meshgrid(np.linspace(.01, .8, 120), np.linspace(-.15, 1., 25), indexing='ij')
+        points = model.evaluate(np.column_stack([ss.ravel(), vv.ravel()]))
+        restrict_to_scan_support(model, points, padding_spacing=1.)
+        self.assertTrue(model.open_tip)
+        self.assertAlmostEqual(model.length, .8)
+        sv, faces = model.mesh_grid()
+        self.assertAlmostEqual(float(sv[:, 0].max()), .8)
+        self.assertGreater(float(np.min(triangle_areas(model.evaluate(sv), faces))), 0.)
+        self.assertGreater(model.support_right.mean(), model.support_left.mean())
+        self.assertGreater(np.linalg.norm(model.evaluate([[.8, -1.]])[0]-model.evaluate([[.8, 1.]])[0]), .01)
+        with self.assertRaises(ValueError):
+            model.evaluate([[1., 0.]])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'supported.npz'
+            model.save(path)
+            restored = MaizeLeafModel.load(path)
+            self.assertTrue(restored.open_tip)
+            np.testing.assert_allclose(restored.evaluate(sv), model.evaluate(sv), atol=1e-12)
+
     def test_dornbusch_boundaries_and_form_factor(self):
+        """检查叶宽边界条件及解析形状系数。"""
         b = DornbuschBlade(length=1.2, w_max=0.15, xm=0.35, k_lig=0.62, c1=1.8, c2=2.0)
         self.assertAlmostEqual(float(b.width(0.0)), 0.15 * 0.62, places=10)
         self.assertAlmostEqual(float(b.width(1.2 * 0.35)), 0.15, places=10)
@@ -59,6 +93,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertTrue(0.65 < b.form_factor < 0.80)
 
     def test_dornbusch_tip_length_inversion(self):
+        """检查在可辨识截断条件下的叶尖长度反演。"""
         truth = DornbuschBlade(length=1.0, w_max=0.14, xm=0.35, k_lig=0.60, c1=1.85, c2=2.0)
         s_obs = np.linspace(0.02, 0.82, 30)
         w_obs = truth.width(s_obs)
@@ -67,6 +102,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertAlmostEqual(fitted.w_max, 0.14, delta=0.01)
 
     def test_length_cap_is_explicitly_flagged_without_forcing_short_tip(self):
+        """检查长度触及上界时记录状态并保留受约束估计。"""
         s = np.linspace(.02, .98, 30)
         fitted = fit_dornbusch_blade(s, np.full(len(s), .14), 1.)
         self.assertGreater(fitted.length, 1.)
@@ -74,6 +110,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertEqual(fitted.completion_status, "boundary_limited")
 
     def test_extension_follows_final_surface_center_instead_of_reference_line(self):
+        """检查延长段从最终叶面中心连续接出。"""
         s = np.linspace(0., 1.2, 60)
         controls = np.column_stack([np.linspace(0., 1.2, 4), np.zeros(4), np.zeros(4)])
         curve = BSpline(np.r_[np.zeros(4), np.full(4, 1.2)], controls, 3)
@@ -95,6 +132,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
             self.assertFalse(MaizeLeafModel.load(path).surface_tip_extension)
 
     def test_rmf_orthonormality_and_twist_free(self):
+        """检查最小旋转标架正交归一及无额外扭转。"""
         t = np.linspace(0.0, 2.0, 100)
         pts = np.column_stack([t, 0.2 * np.sin(t), 0.3 * np.cos(t)])
         tan = np.column_stack([np.ones_like(t), 0.2 * np.cos(t), -0.3 * np.sin(t)])
@@ -106,6 +144,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         np.testing.assert_allclose(np.sum(B * N, axis=1), 0.0, atol=1e-10)
 
     def test_pspline_gcv_and_exact_projection(self):
+        """检查平滑样条恢复及点到曲线投影精度。"""
         rng = np.random.default_rng(0)
         s = np.linspace(0.0, 1.0, 60)
         pts = np.column_stack([s, np.zeros_like(s), 0.2 * np.sin(np.pi * s)])
@@ -117,6 +156,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertTrue(np.all(np.diff(s_proj) >= -1e-4))
 
     def test_tps_gcv_surface_recovery(self):
+        """检查薄板样条在解析曲面上的恢复误差。"""
         rng = np.random.default_rng(1)
         xy = rng.uniform(-1.0, 1.0, (120, 2))
         y = 0.2 * xy[:, 0] ** 2 - 0.15 * xy[:, 1] ** 2 + rng.normal(0, 0.003, 120)
@@ -126,6 +166,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertLess(float(np.sqrt(np.mean((pred - y) ** 2))), 0.01)
 
     def test_shared_geometry_cache_preserves_candidate_surfaces(self):
+        """检查共用几何缓存不会改变候选曲面。"""
         xyz, normals, stem, _, hole, margin, _ = make_synthetic_maize_leaf()
         visible = ~(hole | margin)
         points, nrm = xyz[visible], normals[visible]
@@ -138,6 +179,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
             np.testing.assert_allclose(shared["vertices"], independent["vertices"], atol=1e-12)
 
     def test_full_leaf_completion_and_serialization(self):
+        """检查完整拟合与模型保存加载的一致性。"""
         xyz, normals, stem, _, hole, margin, tip = make_synthetic_maize_leaf()
         missing = hole | margin | tip
         res = fit_leaf(xyz[~missing], stem, normals=normals[~missing], cfg=ModelConfig(nu=80, nv=21), leaf_id=3)
@@ -161,6 +203,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
             np.testing.assert_allclose(res["model"].evaluate(sv), reloaded.evaluate(sv), atol=1e-10)
 
     def test_sor_denoising_and_l1_skeleton(self):
+        """检查离群点抑制及 L1 骨架保留叶片主干。"""
         xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
         rng = np.random.default_rng(7)
         outliers = np.array([[0.5, 0.4, 0.3], [0.2, -0.45, -0.1], [0.8, 0.35, 0.5]])
@@ -174,6 +217,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertLess(float(np.std(skel[:, 1])), float(np.std(xyz[:, 1])) * 0.45)
 
     def test_end_to_end_pipeline(self):
+        """检查从标签点云到模型与汇总产物的完整流程。"""
         xyz, normals, stem, _, hole, _, _ = make_synthetic_maize_leaf()
         pts = np.vstack([stem, xyz[~hole]])
         nrm = np.vstack([np.tile([1.0, 0.0, 0.0], (len(stem), 1)), normals[~hole]])
@@ -190,15 +234,19 @@ class MaizeLeafV2Tests(unittest.TestCase):
                 f.write("X,Y,Z,semantic\n")
                 for p, l in zip(pts, lbl):
                     f.write(f"{p[0]:.6f},{p[1]:.6f},{p[2]:.6f},{l}\n")
-            out = run(in_dir, root / "out", cfg=ModelConfig(nu=35, nv=13), calibrate_prior=False)
+            out = run(in_dir, root / "out", cfg=ModelConfig(nu=35, nv=13, conservative_support=True), calibrate_prior=False)
             self.assertTrue((out / "index.html").is_file())
             self.assertTrue((out / "traits.csv").is_file())
             self.assertTrue((out / "plant_p1/whole_plant_mesh.ply").is_file())
             self.assertTrue((out / "plant_p1/leaves/leaf_02_model.npz").is_file())
+            supported = MaizeLeafModel.load(out / "plant_p1/leaves/leaf_02_model.npz")
+            self.assertGreater(len(supported.support_s), 2)
+            self.assertLessEqual(supported.length, supported.length_obs + 1e-8)
 
     def test_sparse_disconnected_terminal_fragment_is_preserved(self):
         # A coherent terminal section with <5% of the scan remains leaf data,
         # even when its spacing is greater than that of the main blade.
+        """检查稀疏且分离的末端断片不会被误删。"""
         x, y = np.meshgrid(np.linspace(0.0, 0.75, 160), np.linspace(-0.04, 0.04, 21))
         main = np.column_stack([x.ravel(), y.ravel(), np.zeros(x.size)])
         x, y = np.meshgrid(np.linspace(0.90, 1.0, 16), np.linspace(-0.02, 0.02, 5))
@@ -211,6 +259,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         np.testing.assert_allclose(nrm, np.tile([0.0, 0.0, 1.0], (len(cleaned), 1)))
 
     def test_broad_blade_midrib_reaches_both_ends(self):
+        """检查宽叶片中脉仍覆盖叶基与叶尖。"""
         x, v = np.meshgrid(np.linspace(0.0, 0.30, 75), np.linspace(-1.0, 1.0, 25))
         width = 0.05 + 0.14 * np.sin(np.pi * x / 0.30)
         points = np.column_stack([x.ravel(), (v * width / 2).ravel(), np.zeros(x.size)])
@@ -223,6 +272,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
     def test_surface_check_detects_folded_strip_with_nonzero_triangles(self):
         # A strip wider than its centerline's bend radius folds over itself,
         # although every sampled triangle can still have positive area.
+        """检查非退化但局部折叠的曲面可被方向检查识别。"""
         radius = 0.05
         s = np.linspace(0.0, 0.14, 100)
         theta = s / radius
@@ -244,6 +294,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertEqual(surface_orientation_diagnostics(straight)["reversed_fraction"], 0.0)
 
     def test_tip_is_one_point_and_legacy_loading_preserves_old_geometry(self):
+        """检查闭合叶尖唯一性及旧模型加载几何兼容。"""
         s = np.linspace(0.0, 1.0, 60)
         curve, _ = fit_pspline_gcv(s, np.column_stack([s, np.zeros(len(s)), np.zeros(len(s))]))
         T, B, N = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
@@ -269,6 +320,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
             self.assertFalse(mesh_diagnostics(old_model)["passed"])
 
     def test_reverse_support_penalizes_unsupported_wide_surface(self):
+        """检查反向支撑指标能够识别无扫描支持的过宽曲面。"""
         s = np.linspace(0.0, 1.0, 60)
         curve, _ = fit_pspline_gcv(s, np.column_stack([s, np.zeros(len(s)), np.zeros(len(s))]))
         t, b, n = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
@@ -284,6 +336,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
     def test_sor_single_pass_clustering_removes_near_surface_outliers(self):
         # Single-pass clustering must not re-shrink the radius graph after removing a far
         # detached outlier and split a near-leaf halo point into a tiny fragment that bypasses SOR.
+        """检查单次连通聚类与 SOR 可去除近叶离群点。"""
         xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
         near_halo = np.array([[0.5, 0.0, 0.085]])
         far_outlier = np.array([[4.0, 4.0, 4.0]])
@@ -296,6 +349,7 @@ class MaizeLeafV2Tests(unittest.TestCase):
     def test_euclidean_clustering_robust_diagonal_resists_far_outlier_inflation(self):
         # A far stray cluster must not inflate the bounding-box diagonal and pull a nearby
         # detached mislabeled patch into the main blade component.
+        """检查稳健包围盒尺度抵抗远端离群点导致的半径膨胀。"""
         xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
         rng = np.random.default_rng(2026)
         # Compact 10-point detached mislabeled patch offset ~0.09 above mid-blade (> 5 * spacing)

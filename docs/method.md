@@ -47,7 +47,7 @@ $$
 
 使用 `cKDTree.sparse_distance_matrix` 构建无向半径图，保留最大连通分量及点数满足 $N_c \ge \max(20, \lfloor 0.01\,N \rfloor)$ 的连贯断片，使稀疏或间断的远端叶尖得以完整参与后续拟合。
 
-上述半径公式与次簇保留阈值经全量 14 株 / 90 片叶的三级敏感性实验（`scripts/validate_euclidean_clustering.py`，固定种子 `2026`，下游固定为已标定分断片 MAD-SOR，扫描 56 组半径定义 × 18 组次簇规则共 1,009 组配置）标定：原始全极差对角线 `np.ptp` 易被远端孤立飞点放大（本批实测叶片中位放大 `1.18×`、最大 `2.09×`；扰动实验 P95 半径膨胀 `1.56×`），导致连通半径过大并吞入近叶误标簇；改用 $D_{\mathrm{rob}}$ 并取 $r = \max(5\,d_{\mathrm{sp}}, 0.02\,D_{\mathrm{rob}})$ 后半径膨胀归零（P95 `1.01×`），Level 2 株均 MCC 由 `0.754` 升至 `0.868`、原始实测自然离面点（`>5 d_sp`）召回率由 `10.3%` 升至 `20.7%`、Level 3A 扰动端到端叶面积误差由 `4.38%` 降至 `2.76%`；次簇阈值消融同时证实 `max(20, 1% N)` 处于全网格最优点（仅留最大簇会使 90 叶实测中位叶面积缩水 `8.9%`）。
+上述半径公式与次簇保留阈值经全量 14 株 / 90 片叶的三级敏感性实验（`scripts/validate.py clustering`，固定种子 `2026`，下游固定为已标定分断片 MAD-SOR，扫描 56 组半径定义 × 18 组次簇规则共 1,009 组配置）标定：原始全极差对角线 `np.ptp` 易被远端孤立飞点放大（本批实测叶片中位放大 `1.18×`、最大 `2.09×`；扰动实验 P95 半径膨胀 `1.56×`），导致连通半径过大并吞入近叶误标簇；改用 $D_{\mathrm{rob}}$ 并取 $r = \max(5\,d_{\mathrm{sp}}, 0.02\,D_{\mathrm{rob}})$ 后半径膨胀归零（P95 `1.01×`），Level 2 株均 MCC 由 `0.754` 升至 `0.868`、原始实测自然离面点（`>5 d_sp`）召回率由 `10.3%` 升至 `20.7%`、Level 3A 扰动端到端叶面积误差由 `4.38%` 降至 `2.76%`；次簇阈值消融同时证实 `max(20, 1% N)` 处于全网格最优点（仅留最大簇会使 90 叶实测中位叶面积缩水 `8.9%`）。
 
 ### 3.2 各断片独立 SOR
 
@@ -63,7 +63,7 @@ $$
 
 当规则合成网格导致 $\sigma_{\mathrm{rob}} \le 10^{-12}$ 时，尺度退回 $\operatorname{std}(\bar{d})$。保留 $\bar{d}_i \le \tau$ 的点；若一次筛选剩余不足 $\max(15, \lfloor 0.75\,N_c \rfloor)$ 则撤销本次筛选，保护稀疏叶尖不被过度裁切。
 
-邻域统计去噪思想参见 [PCL 官方 SOR 说明](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html)。$k = 8$ 与 $\alpha = 3.5$ 的取值由全量 14 株 / 90 片叶的三级敏感性实验（`scripts/validate_sor_sensitivity.py`，固定种子 `2026`，282 组 $k \in [6, 50]$ × 4 种阈值族对比）标定：在二维薄片叶片上，$k > 12$（如 PCL 教程默认 $k = 50$）会随 $\sqrt{k}$ 放大内点邻域半径、稀释近叶飞点对比度并加剧叶尖误删；$k = 6$ 对 3–5 点成团毛刺召回率偏低；$k = 8$ 搭配 $\tau = m + 3.5\,\sigma_{\mathrm{rob}}$ 在注噪端到端重建（14 株全通过，中位叶宽误差 `1.86%`、叶面积误差 `6.38%`）及全量 90 叶原始实测审计（90/90 通过，模型中立原始点 P95 最低且中位叶长/叶面积与基线偏差在 `1.2% / 0.8%` 内）中取得最佳综合平衡。
+邻域统计去噪思想参见 [PCL 官方 SOR 说明](https://pointclouds.org/documentation/classpcl_1_1_statistical_outlier_removal.html)。$k = 8$ 与 $\alpha = 3.5$ 的取值由全量 14 株 / 90 片叶的三级敏感性实验（`scripts/validate.py sor`，固定种子 `2026`，282 组 $k \in [6, 50]$ × 4 种阈值族对比）标定：在二维薄片叶片上，$k > 12$（如 PCL 教程默认 $k = 50$）会随 $\sqrt{k}$ 放大内点邻域半径、稀释近叶飞点对比度并加剧叶尖误删；$k = 6$ 对 3–5 点成团毛刺召回率偏低；$k = 8$ 搭配 $\tau = m + 3.5\,\sigma_{\mathrm{rob}}$ 在注噪端到端重建（14 株全通过，中位叶宽误差 `1.86%`、叶面积误差 `6.38%`）及全量 90 叶原始实测审计（90/90 通过，模型中立原始点 P95 最低且中位叶长/叶面积与基线偏差在 `1.2% / 0.8%` 内）中取得最佳综合平衡。
 
 ## 4. 公共拟合器：有界 P-spline 与 GCV
 
@@ -366,13 +366,13 @@ NPZ 保存样条、标架、叶形、TPS、局部宽度修正及闭合版本；J
 ```bash
 python scripts/run_tests.py
 python scripts/run.py --output outputs/maize_checked
-python scripts/validate_fit.py --baseline outputs/previous --candidate outputs/maize_checked --output outputs/maize_checked/fit_comparison.json
+python scripts/validate.py fit --baseline outputs/previous --candidate outputs/maize_checked --output outputs/maize_checked/fit_comparison.json
 python scripts/visualize.py --root outputs/maize_checked
 ```
 
 先归档旧结果，再生成新目录，检查通过后更新默认展示。审计记录完整保存输入/模型/源码哈希、网格参数与逐叶指标；原始数据与生成大文件按 `.gitignore` 保留本地。
 
-`scripts/validate_holdout.py` 支持在完整真实叶片点云上构造孔洞、单侧叶缘缺口与末端截断三类留出遮挡基准，用于定量评估缺失区域三维重构精度及叶长/叶面积误差。
+`scripts/validate.py holdout` 支持在完整真实叶片点云上构造孔洞、单侧叶缘缺口与末端截断三类留出遮挡基准，用于定量评估缺失区域三维重构精度及叶长/叶面积误差。
 
 ## 16. 方法来源与工程增强
 
@@ -401,7 +401,7 @@ python scripts/visualize.py --root outputs/maize_checked
 
 90 片叶片中，71 片保留点 P95 下降，67 片观测段双向支持距离改善，且无任何叶片出现异常展宽（最大宽度均未超过旧模型两倍）。典型复杂样本 `1-1-2` 叶 2 的保留点 P95 由 0.009881 降至 0.009150，`2-2-2` 叶 4 由 0.017046 降至 0.010693。全部 90 个单叶 PLY 与连续参数曲面的最大坐标差不超过 $5.0\times10^{-9}$，整株拼接 PLY 与单叶顶点完全一致，实现 90/90 全量通过质量检查。
 
-> 适用边界：本系统要求输入自带叶片语义标签；第 17 节数据为全部 14 株实测点云上的扫描内重建与几何检查指标，未观测缺口/截断区域的重构精度由留出遮挡基准（`scripts/validate_holdout.py`）独立评估。
+> 适用边界：本系统要求输入自带叶片语义标签；第 17 节数据为全部 14 株实测点云上的扫描内重建与几何检查指标，未观测缺口/截断区域的重构精度由留出遮挡基准（`scripts/validate.py holdout`）独立评估。
 
 ## 18. 逐叶遮挡留出验证（2026-11-25）
 
@@ -461,11 +461,11 @@ $$\theta(\delta)=\max\{\min(\theta_0,-0.48\pi),\theta_0+\kappa a\delta\exp[-\del
 
 ```bash
 # 生成固定拆分及逐叶基线；如已有基线，保持原目录不覆盖
-python scripts/validate_holdout.py --output outputs/holdout_20261125/baseline --workers 6
+python scripts/validate.py holdout --output outputs/holdout_20261125/baseline --workers 6
 # 修复后复用相同拆分和参考面
-python scripts/validate_holdout.py --output outputs/holdout_20261125/validated --split-root outputs/holdout_20261125/baseline --workers 10
-python scripts/compare_holdout.py --before outputs/holdout_20261125/baseline --after outputs/holdout_20261125/validated
-python scripts/plot_holdout.py --root outputs/holdout_20261125/validated
+python scripts/validate.py holdout --output outputs/holdout_20261125/validated --split-root outputs/holdout_20261125/baseline --workers 10
+python scripts/validate.py compare --before outputs/holdout_20261125/baseline --after outputs/holdout_20261125/validated
+python scripts/plot_validation.py holdout --root outputs/holdout_20261125/validated
 python scripts/run_tests.py
 ```
 
@@ -504,4 +504,40 @@ python scripts/run_tests.py
 
 完整输入的 14 株、90 叶重建仍为 90/90 通过扫描内网格、连续性和贴合检查，局部反向和叶尖未闭合均为 0；单叶 PLY 与连续模型最大坐标差约 $5.0\times10^{-9}$，整株拼接坐标一致。22 项测试通过。基线 3 张及最终 9 张诊断图通过面板对齐、PDF 字号和碰撞检查；这些工程检查不替代本节隐藏区域误差。
 
-被撤回的强制截短策略可用 `python scripts/experiment_tip_policy.py --output outputs/holdout_ablation_new --split-root outputs/holdout_20261125/baseline --workers 10` 在新目录重现；该驱动显式覆盖默认策略，并单独记录驱动哈希，不能与正常模型缓存混用。
+被撤回的强制截短策略可用 `python scripts/validate.py tip-ablation --output outputs/holdout_ablation_new --split-root outputs/holdout_20261125/baseline --workers 10` 在新目录重现；该驱动显式覆盖默认策略，并单独记录驱动哈希，不能与正常模型缓存混用。
+
+## 19. 三项形态因素与相对着生高度分类（2026-11-25）
+
+最终用户定义：紧缩型是顶部细小、尚未充分展开的叶片；舒展型覆盖主要展开叶群；下垂型描述几何下垂姿态。14株不要求每株都出现三类，没有逐株数量配额。
+
+特征为 $x_i=[\theta_i,P_i,H_{pitch,i},h_i]$。$\theta_i$ 为基部叶面纵向切向与局部茎方向夹角；$P_i=A_{h,i}^{elem}/\max_{j\in plant(i)} A_{h,j}^{elem}$ 为同株相对投影面积，保留幼叶较小的面积信息。旧版 $A_h/A$ 消除大小信息，保留为输出对照列，不再作为主投影因素。$H_{pitch}$ 为纵向切向俯仰角在 $[-90^\circ,90^\circ]$ 的12个固定等宽分箱内按面积加权的归一化Shannon熵。熵不被假定随下垂程度单调增加。
+
+$h_i=clip[(z_{base,i}-z_{stem,min})/(z_{stem,max}-z_{stem,min}),0,1]$，从 stem_rel_height 读取，基于观测茎秆范围。历史 norm_base_height 基于整株冠层范围，保留但不参与聚类。
+
+每个训练折内拟合median/IQR，退化时回退到标准差或1。标准化后乘以 $[1,1,1,\sqrt{0.5}]$，用全局K-means++学习三个原型：$k=3$，n_init=50，max_iter=500，seed=42。原型按基部茎叶角从小到大暂时排序，再应用用户引导语义条件：
+
+- 紧缩：原始最近原型是紧缩；$P\le0.5$；$\max_{j\in plant(i)}h_j-h_i\le0.15$；到紧缩原型的距离不超过最近其他原型距离的2/3。
+- 下垂：原始最近原型是下垂，且到下垂原型的距离不超过到舒展原型距离的2/3。
+- 其余过渡样本归舒展。
+
+这是带语义条件的原型分类，不再称为完全无监督三分类。0.5、0.15和2/3是依据用户经验定义设置的开发初值，不是农学常数。报告保存距离比0.5、0.6、2/3、0.7、0.8及高度权重0、0.25、0.5、1、2的对照，不将期望类别比例当作准确率或独立验证。单株推断使用该株全部可见叶片的无标签面积与着生高度背景。
+
+修正后几何的当前90叶结果为紧缩10、舒展51、下垂29。5株没有紧缩型。LOPO只用其他植株拟合标准化参数和原型，对留出植株应用同一规则。OOF ARI约0.744，7叶改变类别；稳定性低于旧版约0.871，不能因为类别比例更符合经验就称为验证成功。该比较同时包含投影因素、几何和语义规则变化，不是纯算法对照。
+
+消融表包含原始原型聚类；仅完整主模型使用语义条件，消融差值不能代表单独的高度或熵增益。高度参与分类，其分层分布只能作描述；下垂不等价于衰老。ambiguous_r080 仅表示原始原型距离比超过0.8，semantic_reassigned 单独表示语义调整。changed_by_height 为兼容保留的“最终类别与无高度原始聚类不同”字段，包含规则差异，页面称为“对照不同”。
+
+## 20. 观测支撑域与查看器点选修正（2026-11-25）
+
+用户指出的2-2-1叶3存在侧缘外扩，2-1-1叶3存在边界受限的长叶尖外推。原来的正向贴合、网格和平均反向支撑检查不能排除局部无点云支撑的大片表面。
+
+当前活动域独立限制左右边缘。将去噪点投影到保存模型的参考曲线和标架，沿观测跨度提取32段左右2%/98%分位宽度；每侧增加2.5倍中位近邻间距作为余量，再以PCHIP插值为原参数域的左右缩放界限。它限制已有拟合曲面的范围，不把被裁掉部分宣称为错误叶片真值。原TPS和叶形先验保留。
+
+所有未观测端部延长从当前活动域撤下；若先验长度大于观测跨度，末端导出开放的完整横截面，不人为压成零宽叶尖。NPZ增加 domain_end、support_s/left/right，旧NPZ默认保持原始几何。model.length、model.mesh_grid()、面积、角度、曲率、熵和查看器共同使用活动域，避免只修显示而仍按旧扩展曲面算表型。原始点云、旧模型、旧表型和分类均归档保留。
+
+90个候选均通过原有拓扑、连续性、方向和正向贴合检查，正向P95相对原模型增加不超过两倍扫描间距。以 $d>\max(5d_{spacing},0.1w_{prior,max})$ 标记远离点云面元，逐叶远离面积占比中位数从6.44%降至0.76%；仍有20叶超过5%的工程复查线。它们可能涉及缺口、标注、外侧拟合或采样不足，不能统一解释为真实缺失叶面。指定两例分别从2.38%降至约0.8%、10.84%降至约0.1%；精确记录见当前模型目录 support_audit.json。
+
+这些是扫描内支撑检查，不是被遮挡部分恢复准确率；第18节历史450例留出结果不能直接转移给本轮收缩域模型。当前表型仍包含活动域中的插值估计，观测/插值/外推比例与支撑待查标记保留。
+
+查看器点选不再重建整个三维网格和二维散点图。稳定保留trace和坐标缓冲区，用可见性、选中标记和散点大小更新；通过动画帧合并连续点选，串行处理渲染并忽略渲染过程的重入点击。默认保留整株上下文，按需勾选“仅看选中叶”。默认显示观测支撑面，显式勾选显示插值/外推面可检查完整估计域；显示开关不改变保存模型或表型数值。
+
+验收记录见 [本轮检查](validation/classification_feedback_2026-11-25.json)。页面脚本回归覆盖快速点选、重入点击、几何缓冲保留、单叶隔离、插值面开关和在线/离线行为一致性；没有据此声称浏览器实机延迟已量化。

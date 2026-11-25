@@ -1,18 +1,24 @@
-"""Stage E: Cross-plant 3-class leaf pose classification, LOPO stability, entropy ablation & plots.
+"""阶段 3（主入口）：基于三项形态特征与相对着生高度的玉米叶片姿态三分类。
 
-Reads frozen Stage D phenotypes from outputs/phenotypes_v2/leaf_traits.csv (strictly read-only),
-runs:
-  1) Primary model: RobustScaler + K-means (k=3, n_init=50, seed=42) on pure morphology
-     features M4 = [stem_leaf_angle_deg, tip_gain, droop_ratio, midrib_curvature_total, projection_ratio]
-     (height strictly excluded!).
-  2) Comparators: Bezdek FCM (m=2.0) and Diagonal GMM (k=3), plus quality-weighted (q_i) sensitivity.
-  3) Strict 14-plant Leave-One-Plant-Out (LOPO) validation + 200-permutation null test (H2).
-  4) Feature ablation M1 -> M5 testing whether normal entropy H_N adds stability/gain (H3).
-  5) Post-hoc canopy height stratification analysis P(C | h) on norm_base_height (after clustering).
-  6) Publication-quality 4-panel diagnostic figure.
+功能说明：
+    读取阶段 2 表型表（默认 outputs/phenotypes_v2/leaf_traits.csv），执行：
+    1. 特征构造：茎叶角 θ、同株相对投影面积 P、纵轴俯仰角信息熵 H_pitch 与相对茎高 h；
+    2. 标准化与加权：在每个 LOPO 训练折内拟合 median/IQR，再按平方距离权重 [1, 1, 1, w_h] 缩放；
+    3. 聚类与语义判定：全局 K-means++（k=3）学习三类原型，结合顶部小型幼叶与端点距离比规则输出
+       紧缩 / 舒展 / 下垂标签（每株不设强制类别配额）；
+    4. 稳定性与敏感性评估：14 株留一株交叉验证（LOPO）、特征消融、高度权重扫描与距离比敏感性；
+    5. 导出逐叶分类表、逐株类别占比表、完整 JSON 报告与交互式四联诊断页。
+
+注意：
+    LOPO ARI 衡量相对全数据划分的稳定性，而非无人工标签条件下的分类准确率；
+    因高度已作为聚类输入，其高度分层结果仅作描述统计，不作独立验证。
+
+常用命令：
+    python scripts/classify_leaf_pose.py --height-weight 0.5
 """
 import argparse
 import csv
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -20,427 +26,242 @@ import time
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-
 ROOT = Path(__file__).resolve().parents[1]
+# 将运行生成的字节码集中到缓存区，源码目录保持整洁。
+sys.pycache_prefix = str(ROOT / ".cache" / "python")
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
-os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import kruskal, spearmanr
-
+import scipy
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from maize_leaf.classification import (
-    ABLATION_MODELS,
-    CLASS_NAMES,
-    adjusted_rand_index,
-    lopo_validate,
-    normalized_mutual_info,
+    ABLATION_MODELS, CLASS_NAMES, DEFAULT_HEIGHT_WEIGHT, DEFAULT_POSE_POLICY, PRIMARY_FEATURES,
+    adjusted_rand_index, lopo_validate, contextual_predict, KMeansModel,
 )
 from maize_leaf.io import write_json
+from maize_leaf.viz import ensure_plotly_js
+
+COLORS = ["#1f77b4", "#1b9e77", "#d95f02"]
+HEIGHT_DEFINITION = "clip((leaf_base_z - stem_min_z) / (stem_max_z - stem_min_z), 0, 1)"
 
 
-def posthoc_height_analysis(labels, heights, plant_ids):
-    """Post-hoc vertical stratification analysis P(C | h) AFTER pure-morphology clustering."""
-    labels = np.asarray(labels, dtype=int)
-    h = np.asarray(heights, dtype=float)
-    plants = np.asarray(plant_ids)
+def load_traits(path):
+    """读取并校验阶段 2 表型 CSV：检查重复键、数值有限性及相对茎高 [0, 1] 边界。"""
+    with Path(path).open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        raise ValueError("Trait table is empty")
+    seen = set()
+    for row in rows:
+        key = (row["plant_id"], int(row["leaf_id"]))
+        if key in seen:
+            raise ValueError(f"Duplicate plant/leaf key: {key}")
+        seen.add(key)
+        row["relative_height"] = float(row["stem_rel_height"])
+        for name in PRIMARY_FEATURES:
+            if not np.isfinite(float(row[name])):
+                raise ValueError(f"Non-finite {name} for {key}")
+        if not 0 <= row["relative_height"] <= 1:
+            raise ValueError(f"Relative height outside [0, 1] for {key}")
+    return rows
 
-    strata = [
-        ("lower_0_33", (h >= 0.0) & (h < 1.0 / 3.0)),
-        ("middle_33_67", (h >= 1.0 / 3.0) & (h < 2.0 / 3.0)),
-        ("upper_67_100", (h >= 2.0 / 3.0) & (h <= 1.0 + 1e-9)),
-    ]
-    by_stratum = {}
-    for name, mask in strata:
-        n = int(np.sum(mask))
-        probs = {CLASS_NAMES[c]: (float(np.mean(labels[mask] == c)) if n > 0 else float("nan")) for c in range(3)}
-        by_stratum[name] = {"n_leaves": n, **probs}
 
-    # Mean height per class
-    class_heights = {
-        CLASS_NAMES[c]: {
-            "n": int(np.sum(labels == c)),
-            "mean_h": float(np.mean(h[labels == c])) if np.any(labels == c) else float("nan"),
-            "median_h": float(np.median(h[labels == c])) if np.any(labels == c) else float("nan"),
+def height_distribution(labels, heights):
+    """按相对高度三等分统计各类别占比（纯描述统计：高度已参与聚类，不作独立验证）。"""
+    result = {}
+    for name, lo, hi in [("lower", 0, 1/3), ("middle", 1/3, 2/3), ("upper", 2/3, 1.000001)]:
+        mask = (heights >= lo) & (heights < hi)
+        result[name] = {
+            "n_leaves": int(mask.sum()),
+            **{CLASS_NAMES[c]: float(np.mean(labels[mask] == c)) if mask.any() else None for c in range(3)},
         }
-        for c in range(3)
+    return result
+
+
+def write_csv(path, rows):
+    """按记录字段写入带 UTF-8 标记的 CSV 表。"""
+    with Path(path).open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def make_diagnostics(output, primary, ablations, sensitivity, rows):
+    """生成交互式四联诊断 HTML（PCA 仅用于二维可视化投影，不参与聚类距离计算）。"""
+    fig = make_subplots(rows=2, cols=2, subplot_titles=(
+        "Weighted feature space (PCA display)", "Cluster centroids (weighted robust scale)",
+        "Feature ablation: partition stability", "Height weight sensitivity (not accuracy)",
+    ), vertical_spacing=0.18, horizontal_spacing=0.12)
+    Z = primary["Z_full"]
+    centered = Z - Z.mean(axis=0)
+    _, _, vt = np.linalg.svd(centered, full_matrices=False)
+    pcs = centered @ vt[:2].T
+    for c, name in enumerate(CLASS_NAMES):
+        mask = primary["full_labels"] == c
+        ids = np.flatnonzero(mask)
+        hover = [f"{rows[i]['plant_id']} / L{rows[i]['leaf_id']}<br>h={float(rows[i]['relative_height']):.3f}" for i in ids]
+        fig.add_trace(go.Scatter(x=pcs[mask, 0], y=pcs[mask, 1], mode="markers", name=name,
+                                text=hover, hovertemplate="%{text}<extra>%{fullData.name}</extra>",
+                                marker=dict(color=COLORS[c], size=8)), row=1, col=1)
+        fig.add_trace(go.Bar(x=["Angle", "Projection", "Entropy", "Height"],
+                            y=primary["centers_scaled"][c], name=name, marker_color=COLORS[c],
+                            showlegend=False), row=1, col=2)
+    keys = list(ablations)
+    for metric, title, color in [("lopo_oof_ari", "Held-out predictions vs full partition", "#1f77b4"),
+                                  ("silhouette", "Silhouette", "#1b9e77")]:
+        fig.add_trace(go.Scatter(x=keys, y=[ablations[k][metric] for k in keys], mode="lines+markers",
+                                name=title, line=dict(color=color)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=[r["height_weight"] for r in sensitivity],
+                            y=[r["lopo_oof_ari"] for r in sensitivity], mode="lines+markers",
+                            name="Height sweep: OOF ARI", line=dict(color="#d95f02")), row=2, col=2)
+    fig.update_layout(template="plotly_white", height=800, width=1200, barmode="group",
+                      margin=dict(t=85, b=100), title="Three morphology factors + relative insertion height",
+                      legend=dict(orientation="h", y=-0.14))
+    fig.update_xaxes(title_text="Squared-distance height weight", row=2, col=2)
+    fig.write_html(str(output / "classification_analysis.html"), include_plotlyjs="assets/plotly.min.js")
+
+
+def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
+    """执行完整的四因素三分类、特征消融、权重/规则敏感性分析并导出报告与图表。"""
+    if not np.isfinite(height_weight) or height_weight < 0:
+        raise ValueError("Height weight must be finite and nonnegative")
+    t0 = time.time()
+    # 1. 加载表型表并准备植株分组与高度数组
+    rows = load_traits(traits_csv)
+    plants = np.array([r["plant_id"] for r in rows])
+    heights = np.array([r["relative_height"] for r in rows])
+
+    def fit(features, weight=height_weight):
+        # 仅主模型使用显式顶部幼叶/端点语义规则，消融对照使用原始原型聚类
+        """按指定特征与高度权重拟合全局原型并应用统一语义规则。"""
+        X = np.array([[float(r[name]) for name in features] for r in rows])
+        weights = [weight if name == "relative_height" else 1.0 for name in features]
+        return lopo_validate(X, plants, features, seed=seed, feature_weights=weights,
+                             decision_policy=DEFAULT_POSE_POLICY if features == PRIMARY_FEATURES else None)
+
+    # 2. 运行 M1–M5 消融及不同高度权重（0、0.25、0.5、1、2）敏感性扫描
+    outcomes = {}
+    for name, features in ABLATION_MODELS.items():
+        outcomes[name] = fit(features)
+        metrics = outcomes[name]["metrics"]
+        print(f"{name}: OOF ARI={metrics['lopo_oof_ari']:.4f}; "
+              f"switch={metrics['lopo_oof_switch_rate_pct']:.1f}%; counts={metrics['class_counts']}", flush=True)
+    primary = outcomes["M5_primary"]
+    no_height = outcomes["M3_morphology"]
+    sensitivity = []
+    for weight in sorted({0.0, 0.25, 0.5, 1.0, 2.0, float(height_weight)}):
+        trial = primary if weight == height_weight else fit(PRIMARY_FEATURES, weight)
+        sensitivity.append({"height_weight": weight, **trial["metrics"],
+                            "ari_vs_primary": adjusted_rand_index(primary["full_labels"], trial["full_labels"])})
+
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    ensure_plotly_js(output)
+    leaf_rows = []
+    for i, row in enumerate(rows):
+        lbl = int(primary["full_labels"][i])
+        oof = int(primary["oof_labels"][i])
+        record = {"plant_id": row["plant_id"], "leaf_id": int(row["leaf_id"])}
+        for name in ["stem_leaf_angle_deg", "projection_ratio", "rel_projected_area", "pitch_entropy_b12", "relative_height",
+                     "stem_rel_height", "norm_base_height", "projected_area_element", "surface_area",
+                     "quality_weight", "coverage_observed", "coverage_extrapolated", "tip_gain", "droop_ratio"]:
+            record[name] = float(row[name])
+        record.update(cluster_kmeans=CLASS_NAMES[lbl], cluster_kmeans_id=lbl,
+                      cluster_kmeans_lopo_oof=CLASS_NAMES[oof], lopo_switched=bool(lbl != oof),
+                      distance_ratio_r=float(primary["distance_ratio"][i]),
+                      ambiguous_r080=bool(primary["distance_ratio"][i] > 0.80),
+                      cluster_raw_kmeans=CLASS_NAMES[int(primary["raw_labels"][i])],
+                      semantic_reassigned=bool(lbl != primary["raw_labels"][i]),
+                      cluster_without_height=CLASS_NAMES[int(no_height["full_labels"][i])],
+                      changed_by_height=bool(lbl != no_height["full_labels"][i]))
+        leaf_rows.append(record)
+    write_csv(output / "leaf_classifications.csv", leaf_rows)
+    plant_rows = []
+    for plant in sorted(set(plants)):
+        sub = [r for r in leaf_rows if r["plant_id"] == plant]
+        plant_rows.append({"plant_id": plant, "leaf_count": len(sub),
+                           **{f"n_{c}": sum(r["cluster_kmeans"] == c for r in sub) for c in CLASS_NAMES},
+                           "n_ambiguous": sum(r["ambiguous_r080"] for r in sub),
+                           "n_lopo_switched": sum(r["lopo_switched"] for r in sub),
+                           "n_changed_by_height": sum(r["changed_by_height"] for r in sub)})
+    write_csv(output / "plant_class_fractions.csv", [
+        {**r, **{f"class_fraction_{c}": r[f"n_{c}"] / r["leaf_count"] for c in CLASS_NAMES}}
+        for r in plant_rows
+    ])
+    centroids = {
+        name: {"n_leaves": int(np.sum(primary["full_labels"] == c)),
+               "prototype_raw": dict(zip(PRIMARY_FEATURES, primary["centers_raw"][c].tolist())),
+               "final_class_mean": {f: float(np.mean([float(rows[i][f]) for i in np.flatnonzero(primary["full_labels"] == c)])) if np.any(primary["full_labels"] == c) else None for f in PRIMARY_FEATURES}}
+        for c, name in enumerate(CLASS_NAMES)
     }
-
-    groups = [h[labels == c] for c in range(3) if np.sum(labels == c) >= 2]
-    kw_stat, kw_p = kruskal(*groups) if len(groups) >= 2 else (float("nan"), float("nan"))
-    # Ordinal correlation: convergent=0, expanded=1, drooping=2 vs height (negative => upper more erect)
-    sp_res = spearmanr(labels, h)
-
-    # Plant-level independent-unit check (n=14 plants): within-plant Spearman(class, height)
-    plant_rhos = []
-    for pl in sorted(set(plants)):
-        m = plants == pl
-        if len(set(labels[m])) >= 2 and np.sum(m) >= 3:
-            r = float(spearmanr(labels[m], h[m]).statistic)
-            if np.isfinite(r):
-                plant_rhos.append(r)
-
-    return {
-        "by_height_stratum": by_stratum,
-        "height_by_class": class_heights,
-        "kruskal_wallis_H": float(kw_stat),
-        "kruskal_wallis_p_leaf_level": float(kw_p),
-        "spearman_class_vs_height_leaf_level": float(sp_res.statistic),
-        "spearman_p_leaf_level": float(sp_res.pvalue),
-        "within_plant_spearman_n_plants_with_ge2_classes": len(plant_rhos),
-        "within_plant_spearman_median": float(np.median(plant_rhos)) if plant_rhos else float("nan"),
-        "within_plant_negative_count": int(sum(r < 0 for r in plant_rhos)),
-        "note": "Leaf-level p-values are descriptive (leaves nested within 14 plants); see within-plant summary for plant-level consistency.",
+    sources = ["src/maize_leaf/classification.py", "scripts/classify_leaf_pose.py"]
+    prototype_model = KMeansModel()
+    prototype_model.centers_ = primary["centers_scaled"]
+    policy_sensitivity = []
+    for ratio in (0.5, 0.6, 2/3, 0.7, 0.8):
+        labels, _, _ = contextual_predict(
+            prototype_model, primary["Z_full"],
+            np.array([[float(r[f]) for f in PRIMARY_FEATURES] for r in rows]), plants,
+            PRIMARY_FEATURES, {**DEFAULT_POSE_POLICY, "endpoint_distance_ratio": ratio})
+        policy_sensitivity.append({"endpoint_distance_ratio": ratio,
+                                   "class_counts": {CLASS_NAMES[c]: int(np.sum(labels == c)) for c in range(3)}})
+    report = {
+        "schema_version": "four_factor_apical_young_v2",
+        "traits_csv": os.path.relpath(traits_csv, ROOT).replace("\\", "/"),
+        "traits_sha256": hashlib.sha256(Path(traits_csv).read_bytes()).hexdigest(),
+        "source_sha256": {s: hashlib.sha256((ROOT / s).read_bytes()).hexdigest() for s in sources},
+        "versions": {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__},
+        "seed": seed, "n_plants": len(plant_rows), "n_leaves": len(rows),
+        "primary_model": {
+            "scheme": "three_morphology_plus_height_apical_young", "features": PRIMARY_FEATURES,
+            "algorithm": "kmeans++ with explicit apical-young endpoint policy",
+            "decision_policy": DEFAULT_POSE_POLICY,
+            "per_plant_class_quota": None, "n_clusters": 3, "n_init": 50, "max_iter": 500,
+            "scaler": "training-fold median/IQR, then multiply by sqrt(distance weight)",
+            "height_excluded_from_clustering": False, "height_source_column": "stem_rel_height",
+            "height_definition": HEIGHT_DEFINITION, "height_weight": height_weight,
+            "feature_distance_weights": primary["feature_weights"].tolist(),
+            "weight_selection": "Fixed initial weight; sensitivity sweep does not change the primary choice",
+            "semantic_labels": "Small apical candidates may be compact; confident drooping endpoints remain drooping; transitions are expanded",
+            "scaler_median": primary["scaler_median"].tolist(), "scaler_iqr": primary["scaler_iqr"].tolist(),
+            "centers_weighted_scaled": primary["centers_scaled"].tolist(),
+        },
+        "primary_metrics": primary["metrics"], "primary_centroid_profiles": centroids,
+        "ablation": {k: v["metrics"] for k, v in outcomes.items()},
+        "height_weight_sensitivity": sensitivity,
+        "decision_policy_sensitivity": policy_sensitivity,
+        "height_distribution_descriptive": height_distribution(primary["full_labels"], heights),
+        "interpretation": {
+            "stability": "LOPO OOF ARI compares held-out predictions with the full-data partition; no external truth labels",
+            "height": "Height is an input. Its class distribution is descriptive, not independent biological validation",
+            "projection": "Element horizontal projection / maximum element projection in the same plant; retains relative leaf size; geometry proxy, not photosynthetic capacity",
+            "entropy": "Area-weighted longitudinal tangent pitch entropy, 12 fixed bins; not a signed droop measure",
+            "development_policy": "Apical small-leaf limits and distance margin are expert-guided initial settings, not validated biological constants; no forced class counts",
+            "ablation": "Only the full-feature primary uses the explicit endpoint policy; ablations are raw prototype clustering and are not controlled policy-effect estimates",
+            "comparison_flag": "changed_by_height compares contextual labels with raw no-height clustering; it includes policy differences and is not an isolated height effect",
+            "uncertainty": "All leaves retained; coverage and extrapolation exported for review; missing-tip robustness remains unresolved",
+            "senescence": "Drooping is a geometric label, not a diagnosis of leaf senescence",
+        },
+        "elapsed_s": round(time.time() - t0, 2),
     }
-
-
-def make_diagnostic_figure(out_png, primary_out, ablation_results, height_summary, heights):
-    """Generate 4-panel Stage E classification diagnostic figure."""
-    plt.rcParams.update({
-        "font.family": "DejaVu Sans",
-        "font.size": 9.2,
-        "axes.titlesize": 10.2,
-        "axes.titleweight": "bold",
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "legend.frameon": False,
-        "figure.dpi": 220,
-    })
-
-    fig, axes = plt.subplots(2, 2, figsize=(12.2, 9.0), constrained_layout=True)
-    colors = ["#0072B2", "#009E73", "#D55E00"]  # convergent, expanded, drooping
-    labels = primary_out["full_labels"]
-    Z = primary_out["Z_full"]
-    r_ratio = primary_out["distance_ratio"]
-
-    # Panel (a): PCA 2D projection (visualization only!) of M4 scaled features
-    ax = axes[0, 0]
-    Zc = Z - np.mean(Z, axis=0)
-    _, svals, vt = np.linalg.svd(Zc, full_matrices=False)
-    var_exp = 100.0 * (svals ** 2) / np.sum(svals ** 2)
-    pcs = Zc @ vt[:2].T
-    c_pcs = (primary_out["centers_scaled"] - np.mean(Z, axis=0)) @ vt[:2].T
-
-    for c in range(3):
-        m = labels == c
-        amb = m & (r_ratio > 0.80)
-        clr = m & (r_ratio <= 0.80)
-        ax.scatter(pcs[clr, 0], pcs[clr, 1], s=42, color=colors[c], alpha=0.88,
-                   edgecolor="white", lw=0.5, label=f"{CLASS_NAMES[c]} (n={int(m.sum())})")
-        if np.any(amb):
-            ax.scatter(pcs[amb, 0], pcs[amb, 1], s=50, facecolors="none", edgecolors=colors[c],
-                       lw=1.3, ls="--")
-        ax.scatter([c_pcs[c, 0]], [c_pcs[c, 1]], marker="X", s=110, color=colors[c],
-                   edgecolor="#111111", lw=0.8, zorder=7)
-    ax.scatter([], [], s=50, facecolors="none", edgecolors="#444444", lw=1.2,
-               label=f"Ambiguous ($r_i>0.80$, n={int(np.sum(r_ratio>0.80))})")
-    ax.set_xlabel(f"PC1 ({var_exp[0]:.1f}% variance)")
-    ax.set_ylabel(f"PC2 ({var_exp[1]:.1f}% variance)")
-    ax.set_title("a  Pure-Morphology K-means ($M_4$, 90 Leaves; PCA Display Only)")
-    ax.grid(alpha=0.25, ls=":")
-    ax.legend(fontsize=7.7, loc="best")
-
-    # Panel (b): Standardized cluster centroid profiles across M4 features
-    ax = axes[0, 1]
-    feat_short = [
-        r"$\theta$" + "\n(angle)",
-        r"$\rho$" + "\n(proj ratio)",
-        r"$A_{h,\mathrm{rel}}$" + "\n(rel proj)",
-        r"$g$" + "\n(tip gain)",
-        r"$d$" + "\n(droop)",
-        r"$H_{\mathrm{pit}}$" + "\n(entropy)",
-    ]
-    x_f = np.arange(len(feat_short))
-    w = 0.25
-    C = primary_out["centers_scaled"]
-    for c in range(3):
-        ax.bar(x_f + (c - 1) * w, C[c], width=w, color=colors[c], alpha=0.88, label=CLASS_NAMES[c])
-    ax.axhline(0.0, color="#444444", lw=0.8)
-    ax.set_xticks(x_f)
-    ax.set_xticklabels(feat_short, fontsize=8.0)
-    ax.set_ylabel("Robust-scaled centroid coordinate")
-    ax.set_title("b  Cluster Centroid Profiles (4-Factor Pure Morphology)")
-    ax.grid(axis="y", alpha=0.25, ls=":")
-    ax.legend(fontsize=8.0, loc="upper right")
-
-    # Panel (c): Feature ablation M1..M5 (LOPO OOF ARI, Fold ARI, Silhouette)
-    ax = axes[1, 0]
-    m_keys = list(ABLATION_MODELS.keys())
-    short_m = ["M1\n(θ)", "M2\n(+Proj)", "M3\n(+g,d)", "M4\n(+H_pit)\n[main]", "M5\n(+H_N)\n[alt]"]
-    xm = np.arange(len(m_keys))
-    oof_aris = [ablation_results[k]["lopo_oof_ari"] for k in m_keys]
-    fold_aris = [ablation_results[k]["lopo_fold_ari_mean"] for k in m_keys]
-    sils = [ablation_results[k]["silhouette"] for k in m_keys]
-    rand_p95 = [ablation_results[k]["random_perm_ari_p95"] for k in m_keys]
-
-    ax.plot(xm, oof_aris, "o-", color="#D55E00", lw=2.0, ms=6, label="LOPO OOF ARI (held-out plant)")
-    ax.plot(xm, fold_aris, "s--", color="#0072B2", lw=1.7, ms=5.5, label="LOPO fold-mean ARI (all 90)")
-    ax.plot(xm, sils, "^:", color="#009E73", lw=1.7, ms=5.5, label="Silhouette score (descriptive)")
-    ax.plot(xm, rand_p95, "x-", color="#777777", lw=1.1, ms=5, label="Permutation null P95 ARI")
-    for i, val in enumerate(oof_aris):
-        ax.annotate(f"{val:.3f}", (i, val), textcoords="offset points", xytext=(0, 7),
-                    ha="center", fontsize=7.6, color="#8B3A00", fontweight="bold")
-    ax.set_xticks(xm)
-    ax.set_xticklabels(short_m, fontsize=8.2)
-    ax.set_ylim(-0.05, 1.08)
-    ax.set_ylabel("Stability / separation score")
-    ax.set_title(r"c  Feature Ablation $M_1 \rightarrow M_5$ & Entropy Increment Test ($H_3$)")
-    ax.grid(axis="y", alpha=0.25, ls=":")
-    ax.legend(fontsize=7.6, loc="lower left")
-
-    # Panel (d): Post-hoc canopy vertical stratification P(C | h) (height NOT used in clustering)
-    ax = axes[1, 1]
-    st_keys = ["lower_0_33", "middle_33_67", "upper_67_100"]
-    st_lbls = [
-        f"Lower (0–33%)\nn={height_summary['by_height_stratum']['lower_0_33']['n_leaves']}",
-        f"Middle (33–67%)\nn={height_summary['by_height_stratum']['middle_33_67']['n_leaves']}",
-        f"Upper (67–100%)\nn={height_summary['by_height_stratum']['upper_67_100']['n_leaves']}",
-    ]
-    xs = np.arange(3)
-    bottom = np.zeros(3)
-    for c in range(3):
-        vals = np.array([100.0 * height_summary["by_height_stratum"][k][CLASS_NAMES[c]] for k in st_keys])
-        ax.bar(xs, vals, bottom=bottom, width=0.52, color=colors[c], alpha=0.88, label=CLASS_NAMES[c])
-        for i, v in enumerate(vals):
-            if v >= 8.0:
-                ax.text(i, bottom[i] + 0.5 * v, f"{v:.0f}%", ha="center", va="center",
-                        color="white", fontsize=8.5, fontweight="bold")
-        bottom += vals
-
-    ax.set_xticks(xs)
-    ax.set_xticklabels(st_lbls, fontsize=8.5)
-    ax.set_ylim(0, 114)
-    ax.set_ylabel("Pose class proportion (%)")
-    rho_h = height_summary["spearman_class_vs_height_leaf_level"]
-    w_med = height_summary["within_plant_spearman_median"]
-    ax.set_title(f"d  Post-hoc Height Stratification ($\\rho={rho_h:+.2f}$, plant med={w_med:+.2f})", fontsize=9.8)
-    ax.legend(fontsize=8.0, loc="upper center", ncol=3)
-
-    fig.savefig(out_png, dpi=240)
-    plt.close(fig)
+    write_json(output / "classification_report.json", report)
+    make_diagnostics(output, primary, report["ablation"], sensitivity, rows)
+    print(f"Saved {len(rows)} leaves / {len(plant_rows)} plants to {output}", flush=True)
+    return report
 
 
 def main():
+    # 解析命令行参数（默认读取 outputs/phenotypes_v2，输出至 outputs/classification_v2）
+    """解析四因素分类、留一株验证及敏感性分析参数。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--traits-csv", type=Path, default=ROOT / "outputs/phenotypes_v2/leaf_traits.csv")
-    parser.add_argument("--output", type=Path, default=ROOT / "outputs/classification_v2")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--traits-csv", type=Path, default=ROOT / "outputs/phenotypes_v2/leaf_traits.csv", help="阶段 2 逐叶表型 CSV 路径")
+    parser.add_argument("--output", type=Path, default=ROOT / "outputs/classification_v2", help="分类结果与诊断页输出目录")
+    parser.add_argument("--seed", type=int, default=42, help="K-means++ 与置换检验随机种子")
+    parser.add_argument("--height-weight", type=float, default=DEFAULT_HEIGHT_WEIGHT,
+                        help="标准化后相对着生高度的平方距离权重（设为 0 表示屏蔽高度特征）")
     args = parser.parse_args()
-
-    t0 = time.time()
-    with args.traits_csv.open(encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
-    plant_ids = np.array([r["plant_id"] for r in rows])
-    heights = np.array([float(r["norm_base_height"]) for r in rows])
-    q_weights = np.array([float(r["quality_weight"]) for r in rows])
-
-    def _mat(feat_list):
-        return np.column_stack([[float(r[c]) for r in rows] for c in feat_list])
-
-    # 1. Feature ablation M1..M5 with primary K-means (unweighted)
-    ablation_summary = {}
-    ablation_outs = {}
-    print("=== Feature Ablation M1 -> M5 (K-means k=3, 14-plant LOPO) ===", flush=True)
-    for m_name, feats in ABLATION_MODELS.items():
-        out = lopo_validate(_mat(feats), plant_ids, feats, method="kmeans", seed=args.seed)
-        ablation_outs[m_name] = out
-        m = out["metrics"]
-        ablation_summary[m_name] = m
-        print(
-            f"  {m_name:16s} | OOF_ARI={m['lopo_oof_ari']:.4f} (p={m['h2_permutation_p_value']:.4f}), "
-            f"FoldARI={m['lopo_fold_ari_mean']:.4f}+/-{m['lopo_fold_ari_std']:.4f}, "
-            f"Switch={m['lopo_oof_switch_rate_pct']:4.1f}%, Drift={m['centroid_drift_mean']:.3f}, "
-            f"Sil={m['silhouette']:.3f}, Amb(0.8)={m['ambiguous_rate_r080_pct']:4.1f}%",
-            flush=True,
-        )
-
-    # 2. Algorithm comparison on primary M4: K-means (unweighted & weighted) vs FCM vs GMM
-    X_m4 = _mat(ABLATION_MODELS["M4_primary"])
-    primary_out = ablation_outs["M4_primary"]
-    algo_outs = {
-        "kmeans_unweighted": primary_out,
-        "kmeans_qweighted": lopo_validate(X_m4, plant_ids, ABLATION_MODELS["M4_primary"], method="kmeans", sample_weight=q_weights, seed=args.seed),
-        "fcm_unweighted": lopo_validate(X_m4, plant_ids, ABLATION_MODELS["M4_primary"], method="fcm", seed=args.seed),
-        "gmm_unweighted": lopo_validate(X_m4, plant_ids, ABLATION_MODELS["M4_primary"], method="gmm", seed=args.seed),
-    }
-    print("\n=== Algorithm & Quality-Weight Comparison on Primary M4 ===", flush=True)
-    algo_summary = {}
-    for name, out in algo_outs.items():
-        m = dict(out["metrics"])
-        m["ari_vs_kmeans_unweighted"] = adjusted_rand_index(primary_out["full_labels"], out["full_labels"])
-        m["nmi_vs_kmeans_unweighted"] = normalized_mutual_info(primary_out["full_labels"], out["full_labels"])
-        m["agreement_pct_vs_kmeans"] = 100.0 * float(np.mean(primary_out["full_labels"] == out["full_labels"]))
-        algo_summary[name] = m
-        print(
-            f"  {name:18s} | OOF_ARI={m['lopo_oof_ari']:.4f}, FoldARI={m['lopo_fold_ari_mean']:.4f}, "
-            f"Switch={m['lopo_oof_switch_rate_pct']:4.1f}%, Sil={m['silhouette']:.3f}, "
-            f"vs_KM(ARI={m['ari_vs_kmeans_unweighted']:.3f}, agree={m['agreement_pct_vs_kmeans']:5.1f}%)",
-            flush=True,
-        )
-
-    # 3. Formal Hypothesis H3 comparison: M4 (+H_pit) vs M3 (no entropy) and M5 (+H_N) vs M3
-    m3m = ablation_summary["M3_angle_proj_pose"]
-    m4m = ablation_summary["M4_primary"]
-    m5m = ablation_summary["M5_alt_normal_entropy"]
-    h_m3 = posthoc_height_analysis(ablation_outs["M3_angle_proj_pose"]["full_labels"], heights, plant_ids)
-    h_m4 = posthoc_height_analysis(ablation_outs["M4_primary"]["full_labels"], heights, plant_ids)
-    h_m5 = posthoc_height_analysis(ablation_outs["M5_alt_normal_entropy"]["full_labels"], heights, plant_ids)
-    h3_delta = {
-        "pitch_entropy_m4_minus_m3": {
-            "delta_lopo_oof_ari": m4m["lopo_oof_ari"] - m3m["lopo_oof_ari"],
-            "delta_lopo_fold_ari": m4m["lopo_fold_ari_mean"] - m3m["lopo_fold_ari_mean"],
-            "delta_switch_rate_pct": m4m["lopo_oof_switch_rate_pct"] - m3m["lopo_oof_switch_rate_pct"],
-            "delta_silhouette": m4m["silhouette"] - m3m["silhouette"],
-            "delta_ambiguous_r080_pct": m4m["ambiguous_rate_r080_pct"] - m3m["ambiguous_rate_r080_pct"],
-            "ari_m4_vs_m3": adjusted_rand_index(ablation_outs["M3_angle_proj_pose"]["full_labels"], ablation_outs["M4_primary"]["full_labels"]),
-            "agreement_m4_vs_m3_pct": 100.0 * float(np.mean(ablation_outs["M3_angle_proj_pose"]["full_labels"] == ablation_outs["M4_primary"]["full_labels"])),
-            "m3_height_kruskal_H": h_m3["kruskal_wallis_H"],
-            "m4_height_kruskal_H": h_m4["kruskal_wallis_H"],
-        },
-        "normal_entropy_m5_minus_m3": {
-            "delta_lopo_oof_ari": m5m["lopo_oof_ari"] - m3m["lopo_oof_ari"],
-            "delta_lopo_fold_ari": m5m["lopo_fold_ari_mean"] - m3m["lopo_fold_ari_mean"],
-            "delta_switch_rate_pct": m5m["lopo_oof_switch_rate_pct"] - m3m["lopo_oof_switch_rate_pct"],
-            "delta_silhouette": m5m["silhouette"] - m3m["silhouette"],
-            "m5_height_kruskal_H": h_m5["kruskal_wallis_H"],
-        },
-        "pitch_vs_normal_entropy_m4_vs_m5": {
-            "delta_lopo_oof_ari": m4m["lopo_oof_ari"] - m5m["lopo_oof_ari"],
-            "delta_lopo_fold_ari": m4m["lopo_fold_ari_mean"] - m5m["lopo_fold_ari_mean"],
-            "ari_m4_vs_m5": adjusted_rand_index(ablation_outs["M4_primary"]["full_labels"], ablation_outs["M5_alt_normal_entropy"]["full_labels"]),
-            "agreement_m4_vs_m5_pct": 100.0 * float(np.mean(ablation_outs["M4_primary"]["full_labels"] == ablation_outs["M5_alt_normal_entropy"]["full_labels"])),
-        },
-    }
-    p_d = h3_delta["pitch_entropy_m4_minus_m3"]
-    print(
-        f"\n=== Hypothesis H3 (Pitch Entropy H_pit Increment M4 - M3) ===\n"
-        f"  dOOF_ARI={p_d['delta_lopo_oof_ari']:+.4f}, dFoldARI={p_d['delta_lopo_fold_ari']:+.4f}, "
-        f"dSwitch={p_d['delta_switch_rate_pct']:+.2f}%, dSil={p_d['delta_silhouette']:+.4f}, "
-        f"H_height: M3={p_d['m3_height_kruskal_H']:.2f} -> M4={p_d['m4_height_kruskal_H']:.2f}",
-        flush=True,
-    )
-
-    # 4. Post-hoc canopy height stratification on primary M4
-    print("\n=== Post-hoc Height Stratification (Primary M4, Height Excluded from Clustering) ===", flush=True)
-    for k, v in h_m4["by_height_stratum"].items():
-        print(f"  {k:14s} (n={v['n_leaves']:2d}): conv={100*v['convergent']:5.1f}%, exp={100*v['expanded']:5.1f}%, droop={100*v['drooping']:5.1f}%", flush=True)
-    print(f"  Spearman(class, h)={h_m4['spearman_class_vs_height_leaf_level']:+.3f}, "
-          f"within-plant median rho={h_m4['within_plant_spearman_median']:+.3f} "
-          f"({h_m4['within_plant_negative_count']}/{h_m4['within_plant_spearman_n_plants_with_ge2_classes']} plants negative)", flush=True)
-
-    # 5. Export per-leaf and per-plant CSVs + JSON report + 4-panel figure
-    args.output.mkdir(parents=True, exist_ok=True)
-    leaf_out_rows = []
-    km_lbl = primary_out["full_labels"]
-    km_oof = primary_out["oof_labels"]
-    km_r = primary_out["distance_ratio"]
-    fcm_p = algo_outs["fcm_unweighted"]["full_proba"]
-    fcm_lbl = algo_outs["fcm_unweighted"]["full_labels"]
-    gmm_p = algo_outs["gmm_unweighted"]["full_proba"]
-    gmm_lbl = algo_outs["gmm_unweighted"]["full_labels"]
-    qw_lbl = algo_outs["kmeans_qweighted"]["full_labels"]
-
-    for i, r in enumerate(rows):
-        leaf_out_rows.append({
-            "plant_id": r["plant_id"],
-            "leaf_id": int(r["leaf_id"]),
-            "norm_base_height": float(r["norm_base_height"]),
-            "quality_weight": float(r["quality_weight"]),
-            "stem_leaf_angle_deg": float(r["stem_leaf_angle_deg"]),
-            "tip_gain": float(r["tip_gain"]),
-            "droop_ratio": float(r["droop_ratio"]),
-            "midrib_curvature_total": float(r["midrib_curvature_total"]),
-            "projection_ratio": float(r["projection_ratio"]),
-            "rel_projected_area": float(r["rel_projected_area"]),
-            "pitch_entropy_b12": float(r["pitch_entropy_b12"]),
-            "mean_pitch_deg": float(r["mean_pitch_deg"]),
-            "normal_entropy_b24": float(r["normal_entropy_b24"]),
-            "cluster_kmeans": CLASS_NAMES[km_lbl[i]],
-            "cluster_kmeans_id": int(km_lbl[i]),
-            "cluster_kmeans_lopo_oof": CLASS_NAMES[km_oof[i]],
-            "lopo_switched": bool(km_lbl[i] != km_oof[i]),
-            "distance_ratio_r": float(km_r[i]),
-            "ambiguous_r080": bool(km_r[i] > 0.80),
-            "cluster_kmeans_qweighted": CLASS_NAMES[qw_lbl[i]],
-            "cluster_fcm": CLASS_NAMES[fcm_lbl[i]],
-            "fcm_prob_convergent": float(fcm_p[i, 0]),
-            "fcm_prob_expanded": float(fcm_p[i, 1]),
-            "fcm_prob_drooping": float(fcm_p[i, 2]),
-            "cluster_gmm": CLASS_NAMES[gmm_lbl[i]],
-            "gmm_prob_convergent": float(gmm_p[i, 0]),
-            "gmm_prob_expanded": float(gmm_p[i, 1]),
-            "gmm_prob_drooping": float(gmm_p[i, 2]),
-        })
-
-    def _write_csv(path, data):
-        with path.open("w", encoding="utf-8-sig", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(data[0].keys()))
-            w.writeheader()
-            w.writerows(data)
-
-    _write_csv(args.output / "leaf_classifications.csv", leaf_out_rows)
-
-    plant_rows = []
-    for pl in sorted(set(plant_ids)):
-        sub = [x for x in leaf_out_rows if x["plant_id"] == pl]
-        n = len(sub)
-        plant_rows.append({
-            "plant_id": pl,
-            "leaf_count": n,
-            "n_convergent": sum(x["cluster_kmeans"] == "convergent" for x in sub),
-            "n_expanded": sum(x["cluster_kmeans"] == "expanded" for x in sub),
-            "n_drooping": sum(x["cluster_kmeans"] == "drooping" for x in sub),
-            "class_fraction_convergent": sum(x["cluster_kmeans"] == "convergent" for x in sub) / n,
-            "class_fraction_expanded": sum(x["cluster_kmeans"] == "expanded" for x in sub) / n,
-            "class_fraction_drooping": sum(x["cluster_kmeans"] == "drooping" for x in sub) / n,
-            "ambiguous_fraction_r080": sum(x["ambiguous_r080"] for x in sub) / n,
-            "lopo_switch_fraction": sum(x["lopo_switched"] for x in sub) / n,
-        })
-    _write_csv(args.output / "plant_class_fractions.csv", plant_rows)
-
-    # Cluster raw physical centroid summaries for interpretation
-    centroid_profiles = {}
-    for c in range(3):
-        m = km_lbl == c
-        centroid_profiles[CLASS_NAMES[c]] = {
-            "n_leaves": int(np.sum(m)),
-            "centroid_raw": {
-                fname: float(primary_out["centers_raw"][c, j])
-                for j, fname in enumerate(ABLATION_MODELS["M4_primary"])
-            },
-            "median_raw": {
-                fname: float(np.median([float(rows[i][fname]) for i in np.flatnonzero(m)]))
-                for fname in ABLATION_MODELS["M4_primary"] + ["normal_entropy_b24", "norm_base_height"]
-            },
-        }
-
-    report = {
-        "traits_csv": str(args.traits_csv),
-        "seed": args.seed,
-        "n_plants": len(plant_rows),
-        "n_leaves": len(rows),
-        "primary_model": {
-            "algorithm": "kmeans++ (k=3, n_init=50, max_iter=500)",
-            "scaler": "RobustScaler (median / IQR)",
-            "features": ABLATION_MODELS["M4_primary"],
-            "height_excluded_from_clustering": True,
-        },
-        "primary_centroid_profiles": centroid_profiles,
-        "ablation_m1_to_m5": ablation_summary,
-        "algorithm_comparison_m4": algo_summary,
-        "hypothesis_h3_entropy_increment": h3_delta,
-        "posthoc_height_stratification_m4": h_m4,
-        "posthoc_height_stratification_m5": h_m5,
-        "elapsed_s": round(time.time() - t0, 2),
-    }
-    write_json(args.output / "classification_report.json", report)
-    make_diagnostic_figure(
-        args.output / "classification_analysis.png",
-        primary_out, ablation_summary, h_m4, heights,
-    )
-    print(f"\nSaved Stage E outputs to {args.output.resolve()} ({report['elapsed_s']}s)", flush=True)
+    run(args.traits_csv, args.output, args.seed, args.height_weight)
 
 
 if __name__ == "__main__":

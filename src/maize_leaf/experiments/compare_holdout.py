@@ -1,4 +1,7 @@
-"""Check frozen splits and write paired before/after occlusion-error tables."""
+"""对比前后两轮遮挡留出验证的冻结划分与逐叶配对误差表。
+
+Check frozen splits and write paired before/after occlusion-error tables.
+"""
 import argparse
 import csv
 import hashlib
@@ -11,6 +14,7 @@ METRICS = ("held_median", "held_p95", "held_rmse", "held_p95_over_width",
 
 
 def write_csv(path, rows):
+    """按记录字段写入带 UTF-8 标记的 CSV 表。"""
     fields = list(dict.fromkeys(k for row in rows for k in row))
     with path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -19,6 +23,7 @@ def write_csv(path, rows):
 
 
 def compare(before_root, after_root):
+    """核验冻结划分完全一致后，写入逐叶配对误差与整株汇总。"""
     roots = [Path(before_root), Path(after_root)]
     reports = [json.loads((root / "holdout_benchmark.json").read_text(encoding="utf-8")) for root in roots]
     keys = lambda r: (r["plant"], r["leaf_id"], r["scenario"])
@@ -85,9 +90,10 @@ def compare(before_root, after_root):
     return result
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """解析两轮留出目录并执行冻结划分配对比较。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", type=Path, required=True)
     parser.add_argument("--after", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     compare(args.before, args.after)

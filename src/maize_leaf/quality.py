@@ -1,4 +1,6 @@
-"""Reproducible topology, seam-continuity and scan-fit checks for leaf models."""
+"""网格拓扑、扫描贴合与反向观测支撑质量审计。
+
+Reproducible topology, seam-continuity and scan-fit checks for leaf models."""
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
@@ -7,8 +9,10 @@ from .surface import leaf_mesh_grid, surface_orientation_diagnostics, triangle_a
 
 
 def surface_support_diagnostics(model, points, nu=90, nv=25):
-    """Area-weighted distance from the observed part of the blade to its scan."""
-    sv, faces = leaf_mesh_grid(model.blade.length, nu, nv)
+    """按面积统计观测叶面到扫描点云的反向支撑距离。
+
+    Area-weighted distance from the observed part of the blade to its scan."""
+    sv, faces = model.mesh_grid(nu, nv)
     vertices = model.evaluate(sv)
     areas = triangle_areas(vertices, faces)
     face_s = sv[faces, 0].mean(axis=1)
@@ -16,12 +20,20 @@ def surface_support_diagnostics(model, points, nu=90, nv=25):
     centers = vertices[faces].mean(axis=1)
     distances = cKDTree(points).query(centers[observed])[0]
     weights = areas[observed]
+    spacing = float(np.median(cKDTree(points).query(points, k=2)[0][:, 1]))
+    threshold = max(5 * spacing, .1 * model.blade.w_max)
+    all_distances = cKDTree(points).query(centers)[0]
     return {"mean": float(np.average(distances, weights=weights)),
-            "area": float(weights.sum()), "nu": nu, "nv": nv}
+            "area": float(weights.sum()), "nu": nu, "nv": nv,
+            "max_distance": float(np.max(all_distances)),
+            "far_area_threshold": threshold,
+            "far_area_fraction": float(np.sum(areas[all_distances > threshold]) / np.sum(areas)),
+            "observed_far_area_fraction": float(np.sum(weights[distances > threshold]) / np.sum(weights))}
 
 
 def mesh_diagnostics(model, nu=90, nv=25):
-    sv, faces = leaf_mesh_grid(model.blade.length, nu, nv)
+    """检查网格连通、边界、退化面及叶尖闭合。"""
+    sv, faces = model.mesh_grid(nu, nv)
     vertices = model.evaluate(sv)
     edges = np.sort(np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
     edges, counts = np.unique(edges, axis=0, return_counts=True)
@@ -33,14 +45,14 @@ def mesh_diagnostics(model, nu=90, nv=25):
     bg = coo_matrix((np.ones(len(be)), (be[:, 0], be[:, 1])), shape=(len(ids), len(ids)))
     boundary_components, _ = connected_components(bg, directed=False)
     v = np.linspace(-1.0, 1.0, 41)
-    tip = model.evaluate(np.column_stack([np.full(len(v), model.blade.length), v]))
+    tip = model.evaluate(np.column_stack([np.full(len(v), model.length), v]))
     apex_spread = float(np.max(np.linalg.norm(tip - tip[len(v) // 2], axis=1)))
 
-    # A jump stays finite as epsilon shrinks; a continuous seam's displacement
-    # shrinks proportionally. Include curve, frame, width and extrapolation joins.
-    breaks = np.unique(np.r_[model.midrib.t, model.frame.s_grid, model.width_s, model.length_obs])
-    eps = model.blade.length * 1e-6
-    breaks = breaks[(breaks > eps) & (breaks < model.blade.length - eps)]
+    # 当 epsilon 缩小时，跳跃仍保持有限；连续接缝位移则按比例缩小。
+    # 检查曲线、标架、宽度及外推拼接位置。
+    breaks = np.unique(np.r_[model.midrib.t, model.frame.s_grid, model.width_s, model.support_s, model.length_obs])
+    eps = model.length * 1e-6
+    breaks = breaks[(breaks > eps) & (breaks < model.length - eps)]
     ss, vv = np.meshgrid(breaks, np.linspace(-1.0, 1.0, 5), indexing="ij")
     jumps = []
     for step in (eps, eps * 0.01):
@@ -51,21 +63,22 @@ def mesh_diagnostics(model, nu=90, nv=25):
     areas = triangle_areas(vertices, faces)
     result = {"finite_vertices": bool(np.isfinite(vertices).all()), "mesh_components": int(components),
               "boundary_components": int(boundary_components), "nonmanifold_edges": int(np.sum(counts > 2)),
-              "degenerate_faces": int(np.sum(areas <= 0.0)), "apex_spread": apex_spread,
+              "degenerate_faces": int(np.sum(areas <= 0.0)), "apex_spread": apex_spread, "open_terminal_cross_section": model.open_tip,
               "seam_shrink_ratio": seam_ratio, "nu": nu, "nv": nv}
     result["passed"] = bool(result["finite_vertices"] and components == 1 and boundary_components == 1
                             and result["nonmanifold_edges"] == 0 and result["degenerate_faces"] == 0
-                            and apex_spread < max(1e-8, model.blade.length * 1e-7) and seam_ratio < 0.1)
+                            and (model.open_tip or apex_spread < max(1e-8, model.length * 1e-7)) and seam_ratio < 0.1)
     return result
 
 
 def scan_fit_diagnostics(model, points, nu=220, nv=61):
-    sv, _ = leaf_mesh_grid(model.blade.length, nu, nv)
+    """计算扫描点到密集曲面采样点的最近距离，近似评估贴合误差。"""
+    sv, _ = model.mesh_grid(nu, nv)
     distances = cKDTree(model.evaluate(sv)).query(points)[0]
     spacing = float(np.median(cKDTree(points).query(points, k=2)[0][:, 1]))
-    width = float(np.max(model.width(np.linspace(0.0, model.blade.length, 500))))
-    # Engineering alert threshold, in the scan's own length units. This is not a
-    # statistical confidence interval or a proof of missing-region accuracy.
+    width = float(np.max(model.width(np.linspace(0.0, model.length, 500))))
+    # 工程告警采用扫描自身长度单位；此阈值并非
+    # 统计置信区间，也不能证明缺失区域恢复准确。
     threshold = max(6.0 * spacing, 0.15 * width)
     p95 = float(np.quantile(distances, 0.95))
     return {"median": float(np.median(distances)), "p95": p95,
@@ -75,6 +88,7 @@ def scan_fit_diagnostics(model, points, nu=220, nv=61):
 
 
 def audit_model(model, retained_points):
+    """汇总几何拓扑、曲面方向、扫描贴合及支撑域质量检查。"""
     orientation = surface_orientation_diagnostics(model, 241, 61)
     mesh = mesh_diagnostics(model)
     fit = scan_fit_diagnostics(model, retained_points)

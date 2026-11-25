@@ -1,4 +1,6 @@
-"""All-leaf, leakage-controlled real-scan occlusion benchmark with resumable artifacts."""
+"""对真实扫描构造冻结遮挡，保存可恢复的逐叶留出验证产物。
+
+All-leaf, leakage-controlled real-scan occlusion benchmark with resumable artifacts."""
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, replace
@@ -15,8 +17,8 @@ import time
 # Limit numerical-library threads before importing numpy, also in spawned workers.
 for variable in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS"):
     os.environ[variable] = "1"
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 验证脚本（重建阶段）：全量 90 叶五种遮挡场景留出基准评估
+ROOT = Path(__file__).resolve().parents[3]
 import numpy as np
 import scipy
 from scipy.spatial import cKDTree
@@ -28,11 +30,13 @@ from maize_leaf.validation import SCENARIOS, occlusion_masks, point_mesh_distanc
 
 
 def source_hashes():
+    """记录当前算法模块与验证驱动的源码哈希。"""
     files = sorted((ROOT / "src/maize_leaf").glob("*.py")) + [Path(__file__)]
     return {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
 
 
 def fit_one_leaf(job):
+    """对单叶复用冻结掩码，分别拟合各遮挡场景并缓存误差。"""
     name, lid, points, normals, stem, folder, cfg, frozen_folder = job
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -135,6 +139,7 @@ def fit_one_leaf(job):
 
 
 def summarize(records):
+    """按场景汇总逐叶指标与逐株中位数，保留失败和跳过计数。"""
     summary = {}
     for scenario in SCENARIOS:
         subset = [r for r in records if r["scenario"] == scenario]
@@ -154,7 +159,8 @@ def summarize(records):
     return summary
 
 
-def evaluate_holdout(input_root, output_dir, max_leaves=None, workers=6, plants=None, split_root=None):
+def evaluate_holdout(input_root, output_dir, max_leaves=None, workers=6, plants=None, split_root=None, worker_initializer=None):
+    """冻结输入与配置指纹，并行运行留出案例并导出可追溯报告。"""
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     hashes = source_hashes()
@@ -167,6 +173,8 @@ def evaluate_holdout(input_root, output_dir, max_leaves=None, workers=6, plants=
                 "minimum_points": {"held": 20, "observed": 200},
                 "alerts": {"held_p95": "max(6*spacing, .15*reference_max_width)",
                            "length_change_pct": 15, "area_change_pct": 25}}
+    if worker_initializer is not None:
+        manifest["worker_policy"] = worker_initializer.__module__ + "." + worker_initializer.__name__
     if split_root is not None:
         manifest["frozen_split_fingerprint"] = json.loads((Path(split_root) / "manifest.json").read_text(encoding="utf-8"))["fingerprint"]
     fingerprint = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
@@ -190,7 +198,7 @@ def evaluate_holdout(input_root, output_dir, max_leaves=None, workers=6, plants=
         jobs = jobs[:max_leaves]
     records = []
     started = time.perf_counter()
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    with ProcessPoolExecutor(max_workers=workers, initializer=worker_initializer) as pool:
         futures = {pool.submit(fit_one_leaf, job): (job[0], job[1]) for job in jobs}
         for index, future in enumerate(as_completed(futures), 1):
             result = future.result()
@@ -220,7 +228,8 @@ def evaluate_holdout(input_root, output_dir, max_leaves=None, workers=6, plants=
     return report
 
 
-def main():
+def build_parser():
+    """构造共享参数解析器，供正常验证和消融入口统一校验。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=ROOT / "dataset")
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/holdout_20261125/baseline")
@@ -228,9 +237,10 @@ def main():
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--plant", action="append", help="Repeat to select plants for diagnosis")
     parser.add_argument("--split-root", type=Path, help="Reuse this run's frozen masks and full-scan reference")
-    args = parser.parse_args()
-    evaluate_holdout(args.input_root, args.output, args.max_leaves, args.workers, args.plant, args.split_root)
+    return parser
 
 
-if __name__ == "__main__":
-    main()
+def main(argv=None, worker_initializer=None):
+    """读取参数并启动留出验证；仅消融入口提供工作进程策略。"""
+    args = build_parser().parse_args(argv)
+    evaluate_holdout(args.input_root, args.output, args.max_leaves, args.workers, args.plant, args.split_root, worker_initializer)

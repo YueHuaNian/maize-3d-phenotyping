@@ -1,4 +1,6 @@
-"""Analytical mathematical verification tests for V2.0 Stage D traits and normal entropy."""
+"""使用解析几何检验表型定义与尺度、旋转不变性。
+
+Analytical mathematical verification tests for V2.0 Stage D traits and normal entropy."""
 import unittest
 import numpy as np
 from scipy.interpolate import BSpline
@@ -22,9 +24,11 @@ from maize_leaf.traits import (
 
 
 class StageDMathTraitsTests(unittest.TestCase):
+    """使用圆柱、球冠和圆弧检查表型数值公式。"""
     def test_cylinder_fundamental_forms_and_willmore_scale_invariance(self):
         # Cylinder patch of radius R, angle span theta_span, height H_len:
         # Exact H = 1/(2R), K_G = 0, A = R * theta_span * H_len, W = int H^2 dA = A / (4 R^2).
+        """检查圆柱曲率与 Willmore 泛函的尺度不变性。"""
         R = 0.25
         theta_vals = np.linspace(0.0, 0.8, 61)
         z_vals = np.linspace(0.0, 1.0, 51)
@@ -46,6 +50,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_sphere_cap_fundamental_forms(self):
         # Sphere patch of radius R: exact |H| = 1/R, |K_G| = 1/R^2, W = A / R^2.
+        """检查球冠第一、第二基本形式导出的曲率。"""
         R = 0.5
         phi = np.linspace(0.4, 1.1, 61)
         lam = np.linspace(0.0, 0.9, 51)
@@ -61,6 +66,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_quarter_circle_total_midrib_curvature_and_scale_invariance(self):
         # Quarter circle arc of radius R has exact total absolute curvature K_mid = pi / 2 (independent of R).
+        """检查四分之一圆弧总曲率及尺度不变性。"""
         for R in (0.4, 4.0):
             ang = np.linspace(0.0, 0.5 * np.pi, 300)
             pts = np.column_stack([R * np.sin(ang), np.zeros_like(ang), R * np.cos(ang)])
@@ -75,6 +81,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_tilted_stem_leaf_angle_uses_stem_tangent_not_global_z(self):
         # Stem tilted 20 deg from +Z toward +X.
+        """检查倾斜茎秆的茎叶角使用局部茎切向。"""
         tilt = np.radians(20.0)
         t_stem_true = np.array([np.sin(tilt), 0.0, np.cos(tilt)])
         s = np.linspace(0.0, 1.0, 40)
@@ -91,6 +98,7 @@ class StageDMathTraitsTests(unittest.TestCase):
     def test_basal_surface_tangent_roll_invariance_and_obtuse_preservation(self):
         # Vertical stem t_s = (0, 0, 1). Test planar blades at exact true angles 45 deg and 125 deg
         # with strong 60 deg lateral blade roll around the longitudinal axis.
+        """检查基部叶面角不受滚转影响且保留钝角。"""
         t_s = np.array([0.0, 0.0, 1.0])
         roll = np.radians(60.0)
         s_vals = np.linspace(0.0, 0.12, 16)
@@ -112,6 +120,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_zbuffer_directional_exposure_and_occlusion_union(self):
         # Two stacked 1x1 horizontal squares at z=0 (leaf 1) and z=1 (leaf 2).
+        """检查方向投影的深度遮挡与面积并集。"""
         v_bot = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
         v_top = np.array([[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], dtype=float)
         verts = np.vstack([v_bot, v_top])
@@ -136,6 +145,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_hemisphere_normal_entropy_bounds_and_sign_invariance(self):
         # 1. Flat horizontal surface with arbitrary +/- normal flips => entropy = 0.0
+        """检查法向熵取值边界及正负法向等价性。"""
         n_flat = np.vstack([np.tile([0.0, 0.0, 1.0], (50, 1)), np.tile([0.0, 0.0, -1.0], (50, 1))])
         a_flat = np.ones(100)
         for nb in (12, 24, 48):
@@ -149,6 +159,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_pitch_entropy_roll_invariance_and_arch_growth(self):
         # Straight planar blade at exact +40 deg pitch with strong 60 deg lateral roll -> H_pit == 0.0
+        """检查俯仰熵对滚转不变及随纵向拱曲变化。"""
         pitch_rad = np.radians(40.0)
         roll_rad = np.radians(60.0)
         t_dir = np.array([np.cos(pitch_rad), 0.0, np.sin(pitch_rad)])
@@ -174,6 +185,7 @@ class StageDMathTraitsTests(unittest.TestCase):
 
     def test_canopy_radial_envelope_exact_radius(self):
         # Cylindrical point shell of radius 0.3 around a tilted stem x_s(z) = 0.2 * z
+        """检查解析冠层的径向包络半径。"""
         zs = np.linspace(0.0, 1.0, 60)
         stem = np.column_stack([0.2 * zs, np.zeros_like(zs), zs])
         ang = np.linspace(0.0, 2.0 * np.pi, 36, endpoint=False)

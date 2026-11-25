@@ -1,4 +1,6 @@
-"""Offline Plotly HTML and Matplotlib PNG visualization helpers."""
+"""生成点云与曲面的 Plotly 页面和静态检查图。
+
+Offline Plotly HTML and Matplotlib PNG visualization helpers."""
 from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
@@ -19,6 +21,7 @@ img{max-width:100%;border-radius:8px}
 
 
 def _write_page(title, body, target, script=None):
+    """写入独立 HTML 查看页面及本地资源引用。"""
     extra = f'<script src="{script}"></script>' if script else ""
     Path(target).write_text(
         f'<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
@@ -29,6 +32,7 @@ def _write_page(title, body, target, script=None):
 
 
 def ensure_plotly_js(output):
+    """将 Plotly 浏览器脚本导出为本地共享资源。"""
     p = Path(output) / "assets" / "plotly.min.js"
     p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists():
@@ -36,6 +40,7 @@ def ensure_plotly_js(output):
 
 
 def scatter_trace(p, name, color, size=2, limit=9000, mode="markers", width=5):
+    """将点云封装为三维散点轨迹。"""
     if len(p) > limit:
         p = p[np.linspace(0, len(p) - 1, limit).astype(int)]
     return go.Scatter3d(
@@ -46,6 +51,7 @@ def scatter_trace(p, name, color, size=2, limit=9000, mode="markers", width=5):
 
 
 def mesh_traces(result, prefix=""):
+    """按观测、插值和外推区域构建曲面显示轨迹。"""
     v, faces = result["vertices"], result["faces"]
     traces = []
     for k, name in REGIONS.items():
@@ -64,6 +70,7 @@ def mesh_traces(result, prefix=""):
 
 
 def apply_layout(fig):
+    """统一三维坐标比例、相机与页面布局。"""
     fig.update_layout(
         height=720, margin=dict(l=0, r=0, t=15, b=0), paper_bgcolor="white",
         scene=dict(aspectmode="data", xaxis_title="X", yaxis_title="Y", zaxis_title="Z",
@@ -73,6 +80,7 @@ def apply_layout(fig):
 
 
 def save_static_plot(path, points, results, stem=None, title=""):
+    """用静态后端保存点云和曲面检查图。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -106,6 +114,7 @@ def save_static_plot(path, points, results, stem=None, title=""):
 
 
 def export_leaf_html(path, plant_name, leaf_id, result, png_name):
+    """导出单叶点云、中脉与曲面的检查页面。"""
     fig = go.Figure(
         [scatter_trace(result["points"], "Points", "#334c42"),
          scatter_trace(result["midrib"], "Midrib", "#175eb4", mode="lines")]
@@ -135,6 +144,7 @@ def export_leaf_html(path, plant_name, leaf_id, result, png_name):
 
 
 def export_plant_html(path, plant, stem, results):
+    """导出单株三维结果页面。"""
     fig = go.Figure(
         [scatter_trace(plant.xyz, "Plant points", "#566c62", limit=16000),
          scatter_trace(stem, "Stem centerline", "#5134a1", mode="lines", width=7)]
@@ -164,6 +174,7 @@ def export_plant_html(path, plant, stem, results):
 
 
 def export_index_html(path, plants, traits):
+    """生成植株结果目录页及各株链接。"""
     rows = [
         f'<tr><td><a href="plant_{p["plant"]}/whole_plant.html">{p["plant"]}</a></td><td>{p["leaf_count"]}</td></tr>'
         for p in plants

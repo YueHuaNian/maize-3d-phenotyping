@@ -1,4 +1,6 @@
-"""SOR (Statistical Outlier Removal) parameter sensitivity benchmark on real maize leaves.
+"""对分断片 SOR 邻域与阈值进行分级敏感性验证。
+
+SOR (Statistical Outlier Removal) parameter sensitivity benchmark on real maize leaves.
 
 Evaluates k-NN neighborhood sizes and four transparent single-parameter threshold families
 across all 14 plants / 90 leaves in dataset/:
@@ -14,10 +16,8 @@ Original dataset/ and outputs/maize_v2/ are strictly read-only.
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 import csv
-import json
 import os
 from pathlib import Path
-import sys
 import time
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -25,8 +25,8 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 实验脚本（去噪阶段）：分断片 SOR 统计滤波参数敏感性标定
+ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import numpy as np
@@ -36,8 +36,8 @@ from scipy.spatial import cKDTree
 from maize_leaf.geometry import clean_leaf_points, fit_stem_centerline
 from maize_leaf.io import discover, load_pair, write_json
 from maize_leaf.pipeline import calibrate_dataset_prior
-from maize_leaf.quality import audit_model, surface_support_diagnostics
-from maize_leaf.surface import MaizeLeafModel, ModelConfig, fit_leaf, leaf_mesh_grid
+from maize_leaf.quality import surface_support_diagnostics
+from maize_leaf.surface import MaizeLeafModel, ModelConfig, fit_leaf
 
 
 K_VALUES = [6, 8, 10, 12, 16, 20, 24, 30, 40, 50]
@@ -50,7 +50,9 @@ METHOD_GRIDS = {
 
 
 def extract_clusters_once(points, normals=None):
-    """Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels."""
+    """执行与主流程一致的单次去重和连通簇筛选。
+
+    Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels."""
     _, uniq_idx = np.unique(points, axis=0, return_index=True)
     uniq_idx = np.sort(uniq_idx)
     p = points[uniq_idx]
@@ -75,7 +77,9 @@ def extract_clusters_once(points, normals=None):
 
 
 def sor_mask_from_mean_d(mean_d, method, param):
-    """Return boolean keep mask for a single fragment given kNN mean distances."""
+    """由单断片的近邻平均距离计算候选阈值保留掩码。
+
+    Return boolean keep mask for a single fragment given kNN mean distances."""
     if method == "pcl_std":
         thresh = float(np.mean(mean_d) + param * np.std(mean_d))
         return mean_d <= thresh
@@ -97,7 +101,9 @@ def sor_mask_from_mean_d(mean_d, method, param):
 
 
 def apply_sor_to_points(points, normals, method, k, param):
-    """Full denoising function matching candidate (single-pass clusters + per-fragment SOR)."""
+    """组合单次连通簇筛选与候选逐断片 SOR 去噪。
+
+    Full denoising function matching candidate (single-pass clusters + per-fragment SOR)."""
     if method == "current_impl":
         return clean_leaf_points(points, normals)
     p, nrm, frag_lbl, _, _ = extract_clusters_once(points, normals)
@@ -119,7 +125,9 @@ def apply_sor_to_points(points, normals, method, k, param):
 
 
 def inject_realistic_outliers(pts, nrm, spacing, radius, rng, iso_frac=0.02, clus_frac=0.01):
-    """Inject isolated near-leaf halo points and 3-5 point clustered spikes.
+    """注入孤立近叶光晕点和小型成团毛刺，保存真值标签。
+
+    Inject isolated near-leaf halo points and 3-5 point clustered spikes.
 
     Offsets are capped inside ~0.95*radius (or [3.5, 9.5]*spacing) so that Euclidean
     cluster filtering cannot trivially discard them; SOR is tested directly.
@@ -177,7 +185,9 @@ def inject_realistic_outliers(pts, nrm, spacing, radius, rng, iso_frac=0.02, clu
 
 
 def precompute_leaf_records(input_root, ref_model_root, seed=2026):
-    """Load all 90 leaves, compute reference proxies, tip masks, and kNN tables."""
+    """读取叶片并预计算参考尺度、扰动和后续参数扫描所需数据。
+
+    Load all 90 leaves, compute reference proxies, tip masks, and kNN tables."""
     rng = np.random.default_rng(seed)
     pairs = discover(input_root)
     k_max = max(K_VALUES)
@@ -216,7 +226,7 @@ def precompute_leaf_records(input_root, ref_model_root, seed=2026):
             mpath = ref_model_root / f"plant_{plant_name}" / "leaves" / f"leaf_{lid:02d}_model.npz"
             if mpath.is_file():
                 model = MaizeLeafModel.load(mpath)
-                sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+                sv, _ = model.mesh_grid(220, 61)
                 s_pts = model.evaluate(sv)
                 d_surf_sp = cKDTree(s_pts).query(p_cl)[0] / max(spacing, 1e-12)
 
@@ -294,7 +304,9 @@ def precompute_leaf_records(input_root, ref_model_root, seed=2026):
 
 
 def eval_config_level1_level2(leaves, method, k, param):
-    """Evaluate one (method, k, param) across all 90 leaves on Level 1 & Level 2."""
+    """对一个 SOR 配置评价原始点保留与受控离群点检出。
+
+    Evaluate one (method, k, param) across all 90 leaves on Level 1 & Level 2."""
     # Level 1 accumulators
     l1_tot = 0
     l1_rem = 0
@@ -401,6 +413,7 @@ def eval_config_level1_level2(leaves, method, k, param):
         ps[3] += l_fn
 
     def _f1_mcc(tp_, fp_, tn_, fn_):
+        """由混淆计数计算去噪的 F1 和 MCC 指标。"""
         prec = tp_ / max(tp_ + fp_, 1)
         rec = tp_ / max(tp_ + fn_, 1)
         f1 = 2.0 * prec * rec / max(prec + rec, 1e-12)
@@ -442,7 +455,9 @@ def eval_config_level1_level2(leaves, method, k, param):
 
 
 def select_best_candidates(grid_rows):
-    """Select the top configuration from each threshold family (with tip erosion <= 1.5% constraint)."""
+    """在叶尖侵蚀约束下选取各阈值族的优选配置。
+
+    Select the top configuration from each threshold family (with tip erosion <= 1.5% constraint)."""
     best_by_method = {}
     for method in METHOD_GRIDS:
         sub = [r for r in grid_rows if r["method"] == method]
@@ -454,7 +469,9 @@ def select_best_candidates(grid_rows):
 
 
 def fit_leaf_with_custom_sor(points, stem, normals, prior, cfg, leaf_id, method, k, param):
-    """Run fit_leaf by pre-cleaning with custom SOR and temporarily bypassing internal SOR."""
+    """先用候选 SOR 清洗，再临时绕过主流程重复滤波。
+
+    Run fit_leaf by pre-cleaning with custom SOR and temporarily bypassing internal SOR."""
     import maize_leaf.surface as surf_mod
 
     cleaned_p, cleaned_n = apply_sor_to_points(points, normals, method, k, param)
@@ -468,12 +485,14 @@ def fit_leaf_with_custom_sor(points, stem, normals, prior, cfg, leaf_id, method,
 
 
 def _eval_l3a_one(args):
-    """Worker for one (config, leaf) in Level 3A."""
+    """工作进程评价单配置、单叶的含噪端到端重建。
+
+    Worker for one (config, leaf) in Level 3A."""
     label, method, k, param, noisy_pts, noisy_nrm, stem, leaf_id, clean_pts, ref_len, ref_wid, ref_area, prior, cfg = args
     try:
         res, _ = fit_leaf_with_custom_sor(noisy_pts, stem, noisy_nrm, prior, cfg, leaf_id, method, k, param)
         model = res["model"]
-        sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+        sv, _ = model.mesh_grid(220, 61)
         s_pts = model.evaluate(sv)
         d_to_surf = cKDTree(s_pts).query(clean_pts)[0]
         return (
@@ -491,7 +510,9 @@ def _eval_l3a_one(args):
 
 
 def _eval_ref_one(args):
-    """Worker for clean reference fit of one representative leaf."""
+    """工作进程拟合单片干净参考叶面。
+
+    Worker for clean reference fit of one representative leaf."""
     key, clean_pts, clean_nrm, stem, leaf_id, prior, cfg = args
     res_ref, _ = fit_leaf_with_custom_sor(clean_pts, stem, clean_nrm, prior, cfg, leaf_id, "no_sor", 0, 0.0)
     return key, {
@@ -503,12 +524,14 @@ def _eval_ref_one(args):
 
 
 def _eval_l3b_one(args):
-    """Worker for one (config, leaf) in Level 3B (full 90-leaf audit)."""
+    """工作进程评价单配置、单叶的原始扫描重建。
+
+    Worker for one (config, leaf) in Level 3B (full 90-leaf audit)."""
     label, method, k, param, plant, leaf_id, raw_pts, raw_nrm, stem, clean_ref, prior, cfg = args
     try:
         res, _ = fit_leaf_with_custom_sor(raw_pts, stem, raw_nrm, prior, cfg, leaf_id, method, k, param)
         model = res["model"]
-        sv, _ = leaf_mesh_grid(model.blade.length, 220, 61)
+        sv, _ = model.mesh_grid(220, 61)
         s_pts = model.evaluate(sv)
         s_tree = cKDTree(s_pts)
         d_raw = s_tree.query(raw_pts)[0]
@@ -529,7 +552,9 @@ def _eval_l3b_one(args):
 
 
 def run_level3_validation(leaves, candidates, input_root, workers=8):
-    """Level 3A (noisy plant-stratified 14-leaf reconstruction) in parallel."""
+    """按植株分层评价含噪叶片的端到端重建误差。
+
+    Level 3A (noisy plant-stratified 14-leaf reconstruction) in parallel."""
     pairs = discover(input_root)
     prior, n_cal = calibrate_dataset_prior(pairs)
     cfg = ModelConfig(nu=90, nv=25, allow_tip_completion=True)
@@ -612,7 +637,9 @@ def run_level3_validation(leaves, candidates, input_root, workers=8):
 
 
 def run_level3b_full90(leaves, finalists, prior, cfg, workers=8):
-    """Level 3B: Full 90-leaf unperturbed real-scan audit in parallel."""
+    """对全量原始叶扫描并行执行最终候选重建审计。
+
+    Level 3B: Full 90-leaf unperturbed real-scan audit in parallel."""
     l3b_summary = []
     with ProcessPoolExecutor(max_workers=workers) as ex:
         for label, method, k, param in finalists:
@@ -652,7 +679,8 @@ def run_level3b_full90(leaves, finalists, prior, cfg, workers=8):
     return l3b_summary
 
 
-def main():
+def main(argv=None):
+    """解析候选配置与输出目录，运行三级 SOR 去噪标定。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=ROOT / "dataset")
     parser.add_argument("--ref-models", type=Path, default=ROOT / "outputs/maize_v2")
@@ -661,7 +689,7 @@ def main():
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--skip-l3", action="store_true")
     parser.add_argument("--skip-l3b", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     t_start = time.time()
     print("Loading 14 plants / 90 leaves and precomputing kNN tables...", flush=True)
@@ -759,7 +787,3 @@ def main():
     }
     write_json(args.output / "sor_sensitivity_report.json", report)
     print(f"\nSaved report to {args.output / 'sor_sensitivity_report.json'} (total {report['total_elapsed_s']}s)", flush=True)
-
-
-if __name__ == "__main__":
-    main()

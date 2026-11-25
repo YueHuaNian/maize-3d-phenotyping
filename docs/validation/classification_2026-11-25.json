@@ -1,0 +1,128 @@
+{
+  "date": "2026-11-25",
+  "scope": "14 plants, 90 leaves; development classification and viewer logic checks",
+  "feature_definition": {
+    "scheme": "three_morphology_plus_height",
+    "features": [
+      "stem_leaf_angle_deg",
+      "projection_ratio",
+      "pitch_entropy_b12",
+      "relative_height"
+    ],
+    "algorithm": "kmeans++",
+    "n_clusters": 3,
+    "n_init": 50,
+    "max_iter": 500,
+    "scaler": "training-fold median/IQR, then multiply by sqrt(distance weight)",
+    "height_excluded_from_clustering": false,
+    "height_source_column": "stem_rel_height",
+    "height_definition": "clip((leaf_base_z - stem_min_z) / (stem_max_z - stem_min_z), 0, 1)",
+    "height_weight": 0.5,
+    "feature_distance_weights": [
+      1.0,
+      1.0,
+      1.0,
+      0.5000000000000001
+    ],
+    "weight_selection": "Fixed initial weight; sensitivity sweep does not change the primary choice",
+    "semantic_labels": "Cluster centroids ordered by increasing basal stem-leaf angle; provisional morphology labels",
+    "scaler_median": [
+      43.840641552657544,
+      0.5855152738776739,
+      0.7307027161822406,
+      0.5564944401487035
+    ],
+    "scaler_iqr": [
+      25.717643779117257,
+      0.149182550641431,
+      0.15175280117565615,
+      0.4119053136356351
+    ],
+    "centers_weighted_scaled": [
+      [
+        -0.755777462721763,
+        -0.9584177541047889,
+        -1.2096896212996753,
+        0.3651728899144115
+      ],
+      [
+        -0.007821533234199547,
+        0.29588638097453257,
+        0.4655499235777556,
+        -0.18974604645667498
+      ],
+      [
+        1.1066050296758605,
+        0.08839953586359678,
+        -0.26158101892860564,
+        -0.34113312748732744
+      ]
+    ]
+  },
+  "metrics": {
+    "silhouette": 0.3070498620688155,
+    "lopo_fold_ari_mean": 0.8895644947429,
+    "lopo_fold_ari_std": 0.08025654459068512,
+    "lopo_fold_ari_min": 0.7554770449006203,
+    "lopo_fold_nmi_mean": 0.8872736057215337,
+    "lopo_oof_ari": 0.8707523204610963,
+    "lopo_oof_nmi": 0.8491668616305298,
+    "lopo_oof_switch_rate_pct": 4.444444444444445,
+    "lopo_fold_switch_rate_mean_pct": 3.8888888888888897,
+    "centroid_drift_mean": 0.10160473801602178,
+    "centroid_drift_max": 0.2069905221662605,
+    "random_perm_ari_mean": -2.653454205637229e-05,
+    "random_perm_ari_p95": 0.03925596155623722,
+    "h2_permutation_p_value": 0.004975124378109453,
+    "ambiguous_rate_r075_pct": 21.11111111111111,
+    "ambiguous_rate_r080_pct": 13.333333333333334,
+    "ambiguous_rate_r085_pct": 11.11111111111111,
+    "class_counts": {
+      "convergent": 26,
+      "expanded": 45,
+      "drooping": 19
+    }
+  },
+  "source_sha256": {
+    "src/maize_leaf/classification.py": "80d8c2efdbd9cebbd7293d27ae1eca151a5576c5e40aedd2cf09a44d3c0da0b6",
+    "scripts/classify_leaf_pose.py": "36502a895fa67645c82d57938709141e9307bb377df1584849f369310271c0ed",
+    "scripts/visualize.py": "abf056cc7f86acd6db80031fca9fa3afa11fbda6362e55ece5aa11c0996e3dd3",
+    "src/maize_leaf/viewer.html": "d70fcf290e3d19506ae44d357d5aa6403d3afbdaa456749ea73ad8de8aa110e0",
+    "tests/test_classification.py": "e607af2be440ced5f0ce4fe2584727e0b442544be79635e0764fc78364f14f9b",
+    "tests/test_visualize.py": "0311c9c7480a0a37ed221ea45722b7b78c2d78ac8ea71b107699da31b2128fdb",
+    "tests/test_viewer_ui.js": "789586761e7ec6f3c474b214764cc157681d22164e02df9094dca80bb3c79fd8"
+  },
+  "traits_csv": "outputs/phenotypes_v2/leaf_traits.csv",
+  "traits_sha256": "e9711ff4e6f6974c54832caaae4216c85b6ac912d04a35b5b885aec4b807e3fd",
+  "checks": {
+    "python_tests": {
+      "command": "python scripts/run_tests.py",
+      "passed": 42,
+      "total": 42
+    },
+    "viewer_logic": {
+      "command": "node tests/test_viewer_ui.js",
+      "passed": true,
+      "scope": "Synthetic fixtures; live/offline loading, selection, filters, colors, cache and navigation. No browser rendering."
+    },
+    "saved_model_predictions_reproduced": 90,
+    "finite_scene_payloads": 28,
+    "raw_input_hashes_match_holdout_manifest": 28,
+    "archive_entries_present": 12,
+    "browser_visual_check": {
+      "status": "not_completed",
+      "reason": "In-app loopback connection timed out; Windows Computer Use stopped because current browser URL could not be determined reliably."
+    }
+  },
+  "artifacts": {
+    "classification_report": "outputs/classification_v2/classification_report.json",
+    "viewer": "outputs/classification_v2/viewer/index.html",
+    "archive_manifest": "outputs/archive/20261125_four_factor/moves.json"
+  },
+  "limitations": [
+    "LOPO stability is measured against the full-data partition, not external accuracy.",
+    "Height stratification is descriptive because height participates in clustering.",
+    "Height weight 0.5 is a fixed initial setting, not an empirically optimal parameter.",
+    "Missing-tip robustness and biological semantic labels require further validation."
+  ]
+}

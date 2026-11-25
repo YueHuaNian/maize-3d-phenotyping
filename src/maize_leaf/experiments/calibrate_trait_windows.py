@@ -1,4 +1,6 @@
-"""Quantitative bias-variance calibration for Stage D geometric window parameters.
+"""以解析曲面和冻结留出模型标定表型计算窗口。
+
+Quantitative bias-variance calibration for Stage D geometric window parameters.
 
 Calibrates two window percentages using independent non-circular criteria:
   1) basal_span_frac in {0% (single-point midrib), 2%, 5%, 8%, 10%, 12%, 15%, 20%}
@@ -15,17 +17,17 @@ Two complementary benchmarks (fixed seed 2026):
     (hole / margin / tip_10pct vs full reference across all 14 plants / 90 leaves from
     outputs/holdout_20261125/validated/cases/).
 """
+import argparse
 from concurrent.futures import ProcessPoolExecutor
 import os
 from pathlib import Path
-import sys
 import time
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 标定脚本（表型阶段）：茎叶角基部跨度与曲面曲率边距裁切窗口敏感性实验
+ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import matplotlib
@@ -52,7 +54,9 @@ MARGIN_TRIMS = [0.0, 0.01, 0.025, 0.05, 0.075, 0.10, 0.125, 0.15]
 
 
 def make_analytical_leaf(base_deg, droop_rad, roll_deg, arch_amp, seed):
-    """Build analytical curved, rolled, arched Dornbusch maize leaf with exact ground truth."""
+    """构造具有解析几何真值的弯曲、滚转与横向拱起叶片。
+
+    Build analytical curved, rolled, arched Dornbusch maize leaf with exact ground truth."""
     L = 1.0
     blade = DornbuschBlade(length=L, w_max=0.14, xm=0.35, k_lig=0.60, c1=1.8, c2=2.0)
 
@@ -62,6 +66,7 @@ def make_analytical_leaf(base_deg, droop_rad, roll_deg, arch_amp, seed):
 
     def eval_grid(s_vals, v_vals):
         # Integrate centerline from exact pitch alpha(s) = alpha0 + droop_rad * (s/L)^1.35
+        """在解析叶片参数网格上计算三维坐标。"""
         ns, nv = len(s_vals), len(v_vals)
         fine_s = np.linspace(0.0, L, 1001)
         alpha_f = alpha0 + droop_rad * (fine_s / L) ** 1.35
@@ -134,6 +139,7 @@ def make_analytical_leaf(base_deg, droop_rad, roll_deg, arch_amp, seed):
 
 
 def _eval_synth_one(args):
+    """对单个解析合成样本重建并比较不同表型窗口。"""
     idx, base_deg, droop_rad, roll_deg, arch_amp, seed = args
     syn = make_analytical_leaf(base_deg, droop_rad, roll_deg, arch_amp, seed)
     cfg = ModelConfig(nu=90, nv=25, allow_tip_completion=False, seed=2026)
@@ -159,7 +165,9 @@ def _eval_synth_one(args):
 
 
 def run_benchmark1_synthetic(workers=8):
-    """18 diverse analytical curved/rolled/arched maize leaves."""
+    """对多种解析叶片执行含噪重建和窗口误差标定。
+
+    18 diverse analytical curved/rolled/arched maize leaves."""
     specs = []
     idx = 0
     for base_deg in (20.0, 45.0, 70.0, 110.0):
@@ -197,6 +205,7 @@ def run_benchmark1_synthetic(workers=8):
 
 
 def _eval_real_plant(args):
+    """计算单株冻结参考与遮挡模型间的表型窗口漂移。"""
     plant_name, stem_json, cases_dir = args
     sc, sb, sz, _ = load_stem_spline(stem_json)
     ang_pairs = {sp: [] for sp in BASAL_SPANS}
@@ -237,6 +246,7 @@ def _eval_real_plant(args):
 
 
 def run_benchmark2_real_holdout(models_root, holdout_cases_root, workers=8):
+    """并行比较真实参考与留出模型的表型稳定性。"""
     tasks = []
     for pdir in sorted(p for p in Path(models_root).glob("plant_*") if p.is_dir()):
         pname = pdir.name.replace("plant_", "", 1)
@@ -282,6 +292,7 @@ def run_benchmark2_real_holdout(models_root, holdout_cases_root, workers=8):
 
 
 def plot_results(out_png, syn_ang, syn_curv, real_ang, real_curv):
+    """绘制表型窗口的合成误差和真实留出漂移。"""
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
         "font.size": 9.2,
@@ -324,18 +335,25 @@ def plot_results(out_png, syn_ang, syn_curv, real_ang, real_curv):
     plt.close(fig)
 
 
-def main():
+def main(argv=None):
+    """解析标定目录及工作进程数，执行合成与真实留出窗口标定。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--models-root", type=Path, default=ROOT / "outputs/maize_v2")
+    parser.add_argument("--cases-root", type=Path, default=ROOT / "outputs/holdout_20261125/validated/cases")
+    parser.add_argument("--output", type=Path, default=ROOT / "outputs/phenotypes_v2")
+    parser.add_argument("--workers", type=int, default=8)
+    args = parser.parse_args(argv)
     t0 = time.time()
     print("Running Benchmark 1 (16 analytical noisy curved/rolled leaves)...", flush=True)
-    n_syn, syn_ang, syn_curv = run_benchmark1_synthetic(workers=8)
+    n_syn, syn_ang, syn_curv = run_benchmark1_synthetic(workers=args.workers)
     print(f"Benchmark 1 done ({n_syn} leaves) in {time.time() - t0:.1f}s", flush=True)
 
     t1 = time.time()
     print("Running Benchmark 2 (real 90-leaf frozen holdout perturbation pairs)...", flush=True)
     real_ang, real_curv = run_benchmark2_real_holdout(
-        ROOT / "outputs/maize_v2",
-        ROOT / "outputs/holdout_20261125/validated/cases",
-        workers=8,
+        args.models_root,
+        args.cases_root,
+        workers=args.workers,
     )
     print(f"Benchmark 2 done in {time.time() - t1:.1f}s\n", flush=True)
 
@@ -355,7 +373,7 @@ def main():
               f"{rc['h_abs_med_drift_pct']:6.2f}% {rc['h_abs_p95_drift_pct']:7.2f}% "
               f"{rc['willmore_med_drift_pct']:6.2f}% {rc['willmore_p95_drift_pct']:7.2f}% {rc['willmore_spearman']:8.4f}")
 
-    out_dir = ROOT / "outputs/phenotypes_v2"
+    out_dir = args.output
     out_dir.mkdir(parents=True, exist_ok=True)
     report = {
         "seed": 2026,
@@ -371,7 +389,3 @@ def main():
     write_json(out_dir / "window_calibration_report.json", report)
     plot_results(out_dir / "window_calibration_analysis.png", syn_ang, syn_curv, real_ang, real_curv)
     print(f"\nSaved report & figure under {out_dir} (total {report['elapsed_s']}s)", flush=True)
-
-
-if __name__ == "__main__":
-    main()

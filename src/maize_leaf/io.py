@@ -1,4 +1,6 @@
-"""Point cloud (with normals) and 3D mesh I/O."""
+"""带标签点云读入及模型、网格和报告的文件读写。
+
+Point cloud (with normals) and 3D mesh I/O."""
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -7,6 +9,7 @@ import numpy as np
 
 @dataclass
 class Plant:
+    """保存单株点坐标、语义标签与可选扫描法向。"""
     name: str
     xyz: np.ndarray
     labels: np.ndarray
@@ -15,6 +18,7 @@ class Plant:
 
 
 def discover(root):
+    """按输入目录约定配对发现点云 TXT 与语义标签 CSV。"""
     root = Path(root)
     txts = {}
     for p in sorted(root.rglob("*.txt")):
@@ -26,6 +30,7 @@ def discover(root):
 
 
 def load_pair(name, txt, csv):
+    """读取配对文件，组装单株带标签点云。"""
     with open(txt, encoding="utf-8-sig") as f:
         cols = f.readline().strip().removeprefix("//").split()
     raw = np.loadtxt(txt, skiprows=2)
@@ -42,10 +47,12 @@ def load_pair(name, txt, csv):
 
 
 def write_json(path, data):
+    """以 UTF-8 保存结构化 JSON；调用方负责创建父目录。"""
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_ply(path, points, faces=None, colors=None, regions=None, face_regions=None, leaf_ids=None):
+    """导出带坐标及可选面片、颜色的 PLY 文件。"""
     points = np.asarray(points)
     if colors is None:
         colors = np.tile([140, 155, 148], (len(points), 1))
@@ -73,6 +80,7 @@ def write_ply(path, points, faces=None, colors=None, regions=None, face_regions=
 
 
 def read_ply(path):
+    """读取本项目导出的 PLY 几何及附加属性。"""
     with open(path, encoding="ascii") as f:
         nv, nf = 0, 0
         for line in f:
@@ -89,6 +97,7 @@ def read_ply(path):
 
 
 def write_obj(path, vertices, faces, face_regions, regions, colors):
+    """将顶点及三角面索引写为 OBJ 网格。"""
     mtl = Path(path).with_suffix(".mtl")
     with mtl.open("w", encoding="ascii") as f:
         for k, name in regions.items():

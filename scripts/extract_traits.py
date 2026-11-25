@@ -1,12 +1,19 @@
-"""Extract full V2.0 Stage D geometric phenotypes, canopy envelopes, and normal entropy.
+"""阶段 2（主入口）：提取单叶与整株三维几何表型、方向信息熵及冠层径向包络。
 
-Reads frozen continuous leaf models and stem centerlines from outputs/maize_v2/ (strictly
-read-only) and exports:
-  - leaf_traits.csv       (all 90 leaves)
-  - plant_traits.csv      (all 14 plants)
-  - plant_envelopes.csv   (14 plants x height bins R(h))
-  - traits_metadata.json  (exact parameters, quality scale tau, margin-trim & entropy bin
-                           Spearman rank-stability diagnostics)
+功能说明：
+    只读加载阶段 1 产出的连续叶片模型（outputs/maize_v2/plant_*/leaves/leaf_*_model.npz）
+    与茎秆样条中心线，计算并导出：
+    - leaf_traits.csv       ：逐叶表型表（叶长、叶宽、表面积、投影面积与同株相对投影面积、
+                              基部茎叶角、叶尖抬升/下垂比、中脉与曲面曲率、俯仰/法向熵、
+                              相对着生高度、遮挡比及质量权重）；
+    - plant_traits.csv      ：逐株汇总表（株高、茎高、总叶面积、冠层并集投影、重叠指数、
+                              五方向 Z-buffer 可见面积与质量加权平均茎叶角）；
+    - plant_envelopes.csv   ：逐株按高度分箱的 95% 分位冠层径向包络 R(h)；
+    - traits_metadata.json  ：参数口径、源码哈希、质量权重尺度 tau 与分箱/窗口稳定性统计。
+
+常用命令：
+    python scripts/extract_traits.py
+    python scripts/extract_traits.py --skip-sensitivity  # 跳过耗时的边距/基部窗口敏感性复算
 """
 import argparse
 import csv
@@ -20,6 +27,8 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
+# 将运行生成的字节码集中到缓存区，源码目录保持整洁。
+sys.pycache_prefix = str(ROOT / ".cache" / "python")
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
 
 import numpy as np
@@ -38,6 +47,7 @@ from maize_leaf.traits import (
 
 
 def _sha256(path):
+    """分块读取文件并计算 SHA-256，记录输入来源。"""
     h = hashlib.sha256()
     with Path(path).open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -46,7 +56,7 @@ def _sha256(path):
 
 
 def run_margin_trim_sensitivity(model_root, trims=(0.025, 0.05, 0.10)):
-    """Check Spearman rank stability of curvature metrics across lateral margin trim bands."""
+    """检验曲面曲率（平均曲率与 Willmore 弯曲泛函）在不同侧缘裁切比例下的秩稳定性。"""
     model_paths = sorted(Path(model_root).glob("plant_*/leaves/leaf_*_model.npz"))
     results = {t: {"h_abs": [], "willmore": []} for t in trims}
     for mp in model_paths:
@@ -71,7 +81,7 @@ def run_margin_trim_sensitivity(model_root, trims=(0.025, 0.05, 0.10)):
 
 
 def run_basal_span_sensitivity(model_root, spans=(0.05, 0.10, 0.15)):
-    """Check Spearman rank stability and median shift of basal-surface stem-leaf angle across spans."""
+    """检验基部叶面茎叶角在不同纵向基部跨度（5%/10%/15%）下的中位偏移与秩稳定性。"""
     results = {sp: [] for sp in spans}
     for pdir in sorted(p for p in Path(model_root).glob("plant_*") if p.is_dir()):
         stem_c, stem_b, stem_z, _ = load_stem_spline(pdir / "stem_centerline.json")
@@ -94,15 +104,17 @@ def run_basal_span_sensitivity(model_root, spans=(0.05, 0.10, 0.15)):
 
 
 def main():
+    # 解析命令行参数（默认只读 outputs/maize_v2，写入 outputs/phenotypes_v2）
+    """读取冻结模型并导出逐叶表型、整株表型和窗口敏感性结果。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--models-root", type=Path, default=ROOT / "outputs/maize_v2")
-    parser.add_argument("--output", type=Path, default=ROOT / "outputs/phenotypes_v2")
-    parser.add_argument("--no-entropy", action="store_true", help="Disable standalone normal entropy module")
-    parser.add_argument("--margin-trim", type=float, default=0.05, help="Lateral margin exclusion fraction per side")
-    parser.add_argument("--basal-span-frac", type=float, default=0.15, help="Basal surface span fraction for stem-leaf angle (calibrated optimum: 0.15)")
-    parser.add_argument("--zbuf-resolution", type=int, default=360, help="Z-buffer grid resolution along major span")
-    parser.add_argument("--envelope-bins", type=int, default=25, help="Number of height strata for R(h)")
-    parser.add_argument("--skip-sensitivity", action="store_true")
+    parser.add_argument("--models-root", type=Path, default=ROOT / "outputs/maize_v2", help="阶段 1 重建模型根目录")
+    parser.add_argument("--output", type=Path, default=ROOT / "outputs/phenotypes_v2", help="表型 CSV 与元数据输出目录")
+    parser.add_argument("--no-entropy", action="store_true", help="关闭俯仰角与法向信息熵计算")
+    parser.add_argument("--margin-trim", type=float, default=0.05, help="曲率积分时单侧剔除的横向边缘比例")
+    parser.add_argument("--basal-span-frac", type=float, default=0.15, help="计算基部茎叶角使用的叶基纵向跨度比例（已标定最优值 0.15）")
+    parser.add_argument("--zbuf-resolution", type=int, default=360, help="五方向光遮挡 Z-buffer 光栅化主轴分辨率")
+    parser.add_argument("--envelope-bins", type=int, default=25, help="冠层径向包络 R(h) 的高度分箱数")
+    parser.add_argument("--skip-sensitivity", action="store_true", help="跳过侧缘裁切与基部跨度敏感性诊断以加速运行")
     args = parser.parse_args()
 
     t0 = time.time()
@@ -115,6 +127,7 @@ def main():
     all_envelopes = []
     include_entropy = not args.no_entropy
 
+    # 1. 逐株提取单叶表型、整株光遮挡指标与高度分箱径向包络
     for pdir in plant_dirs:
         t_p = time.time()
         leaves, plant_rec, env_rows = extract_plant_phenotypes(
@@ -155,6 +168,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
 
     def _write_csv(path, rows):
+        """按统一列顺序保存表型或敏感性结果表。"""
         with path.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             w.writeheader()

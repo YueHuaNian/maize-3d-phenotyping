@@ -1,4 +1,6 @@
-"""Compare saved surfaces against the same raw scans (fit audit, not holdout accuracy)."""
+"""比较基线与候选模型的逐叶扫描贴合及网格质量。
+
+Compare saved surfaces against the same raw scans (fit audit, not holdout accuracy)."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -8,29 +10,32 @@ import subprocess
 import sys
 import scipy
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / ".vendor")]
+# 审计脚本（重建阶段）：对比基线与候选模型的逐叶扫描贴合与质量指标
+ROOT = Path(__file__).resolve().parents[3]
 
 import numpy as np
 from scipy.spatial import cKDTree
 from maize_leaf.geometry import clean_leaf_points
 from maize_leaf.io import discover, load_pair, write_json
-from maize_leaf.surface import MaizeLeafModel, leaf_mesh_grid, surface_orientation_diagnostics
+from maize_leaf.surface import MaizeLeafModel
 from maize_leaf.quality import audit_model
 
 
 def model_distances(path, points, nu, nv):
+    """采样模型网格并计算对应原始扫描点的最近距离。"""
     model = MaizeLeafModel.load(path)
-    sv, _ = leaf_mesh_grid(model.blade.length, nu, nv)
+    sv, _ = model.mesh_grid(nu, nv)
     return cKDTree(model.evaluate(sv)).query(points)[0], model
 
 
 def distance_summary(distances):
+    """汇总单叶贴合距离的中位数、P95 与均方根。"""
     return {"median": float(np.median(distances)), "p95": float(np.quantile(distances, 0.95)),
             "rmse": float(np.sqrt(np.mean(distances ** 2)))}
 
 
-def main():
+def main(argv=None):
+    """对比基线和候选重建，导出逐叶几何贴合与质量报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, default=ROOT / "dataset")
     parser.add_argument("--baseline", type=Path, required=True)
@@ -40,7 +45,7 @@ def main():
     parser.add_argument("--nv", type=int, default=61)
     parser.add_argument("--plant", help="Restrict comparison to one plant")
     parser.add_argument("--leaf", type=int, help="Restrict comparison to one leaf ID")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     records = []
     inputs = []
     for name, txt, csv in discover(args.input_root):
@@ -75,8 +80,8 @@ def main():
                             "quality": {"before": quality_before, "after": quality_after},
                             "surface_support_mean": {"before": quality_before["support"]["mean"],
                                                      "after": quality_after["support"]["mean"]},
-                            "max_width": {"before": float(np.max(before_model.width(np.linspace(0, before_model.blade.length, 500)))),
-                                          "after": float(np.max(after_model.width(np.linspace(0, after_model.blade.length, 500))))},
+                            "max_width": {"before": float(np.max(before_model.width(np.linspace(0, before_model.length, 500)))),
+                                          "after": float(np.max(after_model.width(np.linspace(0, after_model.length, 500))))},
                             "orientation": {"before": quality_before["orientation"], "after": quality_after["orientation"]},
                             "coverage_within_3_spacing": {"before": float(np.mean(before <= 3 * spacing)),
                                                           "after": float(np.mean(after <= 3 * spacing))}})
@@ -123,7 +128,3 @@ def main():
         if (r["plant"], r["leaf"]) in (("1-1-2", 2), ("2-2-2", 4)):
             print(json.dumps(r, ensure_ascii=False))
     return 0 if summary["quality_passed"]["after"] == len(records) else 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

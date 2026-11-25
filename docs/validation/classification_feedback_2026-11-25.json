@@ -1,0 +1,162 @@
+{
+  "date": "2026-11-25",
+  "classification": {
+    "model": {
+      "scheme": "three_morphology_plus_height_apical_young",
+      "features": [
+        "stem_leaf_angle_deg",
+        "rel_projected_area",
+        "pitch_entropy_b12",
+        "relative_height"
+      ],
+      "algorithm": "kmeans++ with explicit apical-young endpoint policy",
+      "decision_policy": {
+        "compact_max_relative_area": 0.5,
+        "apical_height_span": 0.15,
+        "endpoint_distance_ratio": 0.6666666666666666
+      },
+      "per_plant_class_quota": null,
+      "n_clusters": 3,
+      "n_init": 50,
+      "max_iter": 500,
+      "scaler": "training-fold median/IQR, then multiply by sqrt(distance weight)",
+      "height_excluded_from_clustering": false,
+      "height_source_column": "stem_rel_height",
+      "height_definition": "clip((leaf_base_z - stem_min_z) / (stem_max_z - stem_min_z), 0, 1)",
+      "height_weight": 0.5,
+      "feature_distance_weights": [
+        1.0,
+        1.0,
+        1.0,
+        0.5000000000000001
+      ],
+      "weight_selection": "Fixed initial weight; sensitivity sweep does not change the primary choice",
+      "semantic_labels": "Small apical candidates may be compact; confident drooping endpoints remain drooping; transitions are expanded",
+      "scaler_median": [
+        44.94657779196997,
+        0.5180146441913203,
+        0.7409169019729793,
+        0.5564944401487035
+      ],
+      "scaler_iqr": [
+        25.82684738967643,
+        0.5343212672925853,
+        0.13902724401508315,
+        0.4119053136356351
+      ],
+      "centers_weighted_scaled": [
+        [
+          -0.7080524944827155,
+          -0.3053036966549968,
+          -1.9658705251158837,
+          0.2598655085345862
+        ],
+        [
+          -0.4742633343944735,
+          0.5220723759405712,
+          0.0057646086892584715,
+          0.22359649897833725
+        ],
+        [
+          0.5894847536190821,
+          -0.07313750180326026,
+          0.2599940024853248,
+          -0.416149731167644
+        ]
+      ]
+    },
+    "metrics": {
+      "silhouette": 0.23893959095706352,
+      "lopo_fold_ari_mean": 0.8962770492969654,
+      "lopo_fold_ari_std": 0.1473465235281188,
+      "lopo_fold_ari_min": 0.5399566488000848,
+      "lopo_fold_nmi_mean": 0.9040292612430421,
+      "lopo_oof_ari": 0.7435191287729966,
+      "lopo_oof_nmi": 0.7695350827602293,
+      "lopo_oof_switch_rate_pct": 7.777777777777778,
+      "lopo_fold_switch_rate_mean_pct": 3.2539682539682544,
+      "centroid_drift_mean": 0.12769064045395462,
+      "centroid_drift_max": 0.3983858034728451,
+      "random_perm_ari_mean": -0.0016791557965138365,
+      "random_perm_ari_p95": 0.046031972613061814,
+      "h2_permutation_p_value": 0.004975124378109453,
+      "ambiguous_rate_r075_pct": 21.11111111111111,
+      "ambiguous_rate_r080_pct": 15.555555555555555,
+      "ambiguous_rate_r085_pct": 6.666666666666667,
+      "class_counts": {
+        "convergent": 10,
+        "expanded": 51,
+        "drooping": 29
+      }
+    },
+    "plants_without_compact": [
+      "1-3-1",
+      "2-1-2",
+      "2-2-1",
+      "2-4-1",
+      "2-5-1"
+    ]
+  },
+  "geometry": {
+    "leaves": 90,
+    "quality_passed": 90,
+    "far_area_median_before": 0.06437872767168779,
+    "far_area_median_after": 0.0076102151750473135,
+    "remaining_review_gt_5pct": 20
+  },
+  "checks": {
+    "saved_classifier_predictions_reproduced": 90,
+    "continuous_model_vs_ply_max_coordinate_difference": 4.999979097419782e-09,
+    "original_leaf_point_files_unchanged": 90,
+    "raw_input_hashes_unchanged": 28,
+    "finite_scene_payloads": 28,
+    "whole_plant_exports_present": 14,
+    "offline_plant_pages_present": 14,
+    "python_test_command": "python scripts/run_tests.py",
+    "python_tests_passed": 44,
+    "viewer_logic_command": "node tests/test_viewer_ui.js",
+    "viewer_logic_passed": true,
+    "browser_hardware_latency": "Not measured; Windows browser tool previously could not determine current URL reliably."
+  },
+  "artifacts": {
+    "viewer": "outputs/classification_v2/viewer/index.html",
+    "support_audit": "outputs/maize_v2/support_audit.json",
+    "comparison": "outputs/maize_v2/diagnostics/support_comparison.png",
+    "archive": "outputs/archive/20261125_feedback_fix"
+  },
+  "source_sha256": {
+    "src/maize_leaf/classification.py": "2d619a5906f58e1b7efa08180e3f7052ea3343f60dd295a33259adaa7f641de6",
+    "src/maize_leaf/cli.py": "9e88bd5c5840280cdf29a0f5b2dafe4129e0f6229f5d5fcd0f755078bc8965c5",
+    "src/maize_leaf/entropy.py": "d9ca7fe8a30abd95827d4a8efe974c0961f9830e33b62786263c24f8eb3b08bc",
+    "src/maize_leaf/geometry.py": "79029d8f5b678943b8fb2876ba275891bee24ea3152b6046f783d738b7ef4906",
+    "src/maize_leaf/io.py": "9bd2c966968fe235a0b65cf816ef0e18c6fced1d1c41d4709447d2cecf799432",
+    "src/maize_leaf/joint.py": "fd5a7ffd8620e525e1064d2cb0901aa7c9d2b2260a2f6adad3c157e07f783847",
+    "src/maize_leaf/morphology.py": "187d51ae9faeb709db642af3a0364113d601e564fa581b540277ce56283dd912",
+    "src/maize_leaf/pipeline.py": "ebf92280a7b8c302d05474e0ec6827e75673aa5a46525dee57d4b3db65c9a61e",
+    "src/maize_leaf/quality.py": "9369c1b7662aca2e28df310cc5339aca99d6240f85da10c6c8b055f39a55dd17",
+    "src/maize_leaf/surface.py": "7003a547329c8bbef47e8ca36eccfda916a53047deb6542ea646c424ea2e93a4",
+    "src/maize_leaf/traits.py": "cc377e95f1fe7aa0d37cf93d7c31efab3cba3f99fd0d9184e1832063c12a40c4",
+    "src/maize_leaf/validation.py": "7ddf307e3d06f2ceb3e42757cbfc941555945aad682ffa9f38061d41cc86792d",
+    "src/maize_leaf/viz.py": "9c65944db6229104591ff9cfad2de7d249f247557462ae637ba8e0d0604b1bc5",
+    "src/maize_leaf/__init__.py": "4c0a5d804006bf76b34f01946caf35a6790946b97cfaebcaf66a45754edc4d43",
+    "src/maize_leaf/viewer.html": "aff9a4e21b220c2000bb8b2020880cfc6df7ce7b0112676697ce4e6d1d707829",
+    "scripts/classify_leaf_pose.py": "e5f43ed70bbaea05d082cf9c1ad5631d23f729440f198ab63fe53e8c8aca4919",
+    "scripts/visualize.py": "67a30b0974ea114b66a680be30347d5016ae3eb15e2a677ef1eb631c83815b3e",
+    "scripts/refine_surface_support.py": "537ccbc00c828a1384d44985a5584fd312f271bfe958d79228531f51a95110b0",
+    "tests/test_viewer_ui.js": "8c65c85665df266d2a0ae128c60bd03648b9d13255e2ba16045ae49f4c697520",
+    "scripts/plot_support_comparison.py": "e9a7c446aaefa84f8a7d9c0afb1a84f370626521db21df9465dc92ca6cddf01f"
+  },
+  "limits": [
+    "User-guided development rules; 10/51/29 counts are not accuracy evidence.",
+    "OOF ARI about 0.744 versus earlier 0.871 includes geometry, feature and rule changes.",
+    "20 leaves retain surface-support engineering review flags.",
+    "Current scan-supported domains do not inherit the historical 450-case missing-region validation."
+  ],
+  "diagnostic_plot_runtime": {
+    "python": "3.14.10",
+    "numpy": "2.5.5",
+    "scipy": "1.18.1",
+    "matplotlib": "3.11.2",
+    "environment": "User-configured Nature Figure environment"
+  }
+}

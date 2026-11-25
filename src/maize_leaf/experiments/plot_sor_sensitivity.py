@@ -1,11 +1,14 @@
-"""Generate 4-panel publication-quality SOR parameter sensitivity diagnostic figure."""
+"""读取已有 SOR 标定结果，生成去噪参数敏感性诊断图。
+
+Generate 4-panel publication-quality SOR parameter sensitivity diagnostic figure."""
+import argparse
 import csv
 import json
 import os
 from pathlib import Path
-import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+# 实验绘图（去噪阶段）：SOR 统计滤波参数敏感性四联图
+ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache" / "matplotlib"))
 
 import matplotlib
@@ -15,6 +18,7 @@ import numpy as np
 
 
 def load_grid(csv_path):
+    """读取参数网格 CSV，并将指标列转换为数值。"""
     with open(csv_path, encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     for r in rows:
@@ -24,8 +28,11 @@ def load_grid(csv_path):
     return rows
 
 
-def main():
-    out_dir = ROOT / "outputs" / "sor_sensitivity"
+def main(argv=None):
+    """读取指定标定目录，绘制 SOR 参数诊断图。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT / "outputs/sor_sensitivity", help="验证结果目录")
+    out_dir = parser.parse_args(argv).root
     rows = load_grid(out_dir / "sor_grid_results.csv")
     report = json.loads((out_dir / "sor_sensitivity_report.json").read_text(encoding="utf-8"))
 
@@ -158,7 +165,3 @@ def main():
     fig.savefig(out_png, dpi=240)
     plt.close(fig)
     print(f"Saved figure: {out_png}")
-
-
-if __name__ == "__main__":
-    main()

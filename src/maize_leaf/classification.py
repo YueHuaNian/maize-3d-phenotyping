@@ -1,58 +1,60 @@
-"""Pure-morphology 3-class maize leaf pose classification & LOPO validation (V2.0 Stage E).
+"""四因素叶姿聚类、语义规则与严格留一株稳定性验证。
+
+Weighted leaf pose clustering with three morphology features and relative insertion height.
 
 Mathematical components (pure NumPy/SciPy, zero extra dependencies):
+  - Primary vector: [stem_leaf_angle_deg, rel_projected_area, pitch_entropy_b12, relative_height].
+    relative_height is leaf-base height normalized by the observed stem extent.
   - RobustScaler: x_tilde = (x - median(x)) / IQR(x), fitted strictly on training plants inside LOPO.
-  - Primary classifier: K-means++ (Arthur & Vassilvitskii 2007; k=3, n_init=50, max_iter=500, seed=42).
-  - Soft-classification comparators:
-      * Bezdek (1981) Fuzzy C-Means (FCM, fuzzifier m=2.0, multi-start)
-      * EM Gaussian Mixture Model (GMM, full/diag regularized covariance, multi-start)
+  - Classifier: K-means++ (Arthur & Vassilvitskii 2007; k=3, n_init=50, max_iter=500, seed=42).
   - Post-hoc semantic anchoring (never feeds back into clustering):
-      S_c = -z_theta + z_g - z_d - z_K  (computed from standardized cluster centroids)
+      S_c = -z_theta (entropy is not assumed to be monotonic with drooping).
       Highest S_c -> convergent (0), middle -> expanded (1), lowest -> drooping (2).
   - Ambiguity score: r_i = d_(1) / d_(2) (ratio of nearest to second-nearest centroid distance).
   - Exact Hubert-Arabie Adjusted Rand Index (ARI), Normalized Mutual Information (NMI),
-    Rousseeuw Silhouette score, and strict Leave-One-Plant-Out (LOPO) stability & M1..M5 ablation.
+    Rousseeuw Silhouette score, and Leave-One-Plant-Out (LOPO) stability.
 """
 import numpy as np
 from scipy.spatial.distance import cdist
-from scipy.special import logsumexp
 
 
 CLASS_NAMES = ("convergent", "expanded", "drooping")
-CLASS_NAMES_ZH = ("聚拢", "伸展", "下垂")
+CLASS_NAMES_ZH = ("紧缩", "舒展", "下垂")
 
-# Ablation feature hierarchy (pure single-leaf morphology; height & canopy occlusion strictly excluded!)
-# Four physical dimensions in M4_primary:
-#   1) Basal emergence angle: stem_leaf_angle_deg (theta)
-#   2) Horizontal projected area (efficiency + within-plant scale): projection_ratio (rho), rel_projected_area (Ah_rel)
-#   3) Vertical terminal pose: tip_gain (g), droop_ratio (d)
-#   4) Longitudinal orientation complexity: pitch_entropy_b12 (H_pit)
+PRIMARY_FEATURES = ["stem_leaf_angle_deg", "rel_projected_area", "pitch_entropy_b12", "relative_height"]
+DEFAULT_HEIGHT_WEIGHT = 0.5  # 初始平方距离权重，尚未标定为生物学常数。
+DEFAULT_POSE_POLICY = {"compact_max_relative_area": 0.5, "apical_height_span": 0.15,
+                       "endpoint_distance_ratio": 2 / 3}
 ABLATION_MODELS = {
     "M1_angle": ["stem_leaf_angle_deg"],
-    "M2_angle_proj": ["stem_leaf_angle_deg", "projection_ratio", "rel_projected_area"],
-    "M3_angle_proj_pose": [
-        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area", "tip_gain", "droop_ratio",
-    ],
-    "M4_primary": [
-        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area",
-        "tip_gain", "droop_ratio", "pitch_entropy_b12",
-    ],
-    "M5_alt_normal_entropy": [
-        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area",
-        "tip_gain", "droop_ratio", "normal_entropy_b24",
-    ],
+    "M2_angle_proj": ["stem_leaf_angle_deg", "rel_projected_area"],
+    "M3_morphology": PRIMARY_FEATURES[:3],
+    "M4_no_entropy": ["stem_leaf_angle_deg", "rel_projected_area", "relative_height"],
+    "M5_primary": PRIMARY_FEATURES,
 }
 
 
 class RobustScaler:
-    """Median / IQR scaler resistant to heavy tails; falls back to std if IQR degenerates."""
+    """按中位数和四分位距缩放特征；退化列回退到标准差。
 
-    def __init__(self):
+    Median / IQR scaler resistant to heavy tails; falls back to std if IQR degenerates."""
+
+    def __init__(self, feature_weights=None):
+        """初始化稳健缩放器的特征距离权重。"""
         self.median_ = None
         self.scale_ = None
+        self.feature_weights = feature_weights
+        self.multiplier_ = None
 
     def fit(self, X):
+        """在当前训练样本估计每列的中位数和稳健尺度。"""
         X = np.asarray(X, dtype=float)
+        if X.ndim != 2 or not len(X) or not np.all(np.isfinite(X)):
+            raise ValueError("Features must be a non-empty finite 2D matrix")
+        weights = np.ones(X.shape[1]) if self.feature_weights is None else np.asarray(self.feature_weights, dtype=float)
+        if weights.shape != (X.shape[1],) or not np.all(np.isfinite(weights)) or np.any(weights < 0) or not np.any(weights > 0):
+            raise ValueError("Feature weights must match columns and be finite, nonnegative, and not all zero")
+        self.multiplier_ = np.sqrt(weights)
         self.median_ = np.median(X, axis=0)
         q75 = np.quantile(X, 0.75, axis=0)
         q25 = np.quantile(X, 0.25, axis=0)
@@ -62,39 +64,46 @@ class RobustScaler:
         return self
 
     def transform(self, X):
-        return (np.asarray(X, dtype=float) - self.median_) / self.scale_
+        """使用已经拟合的尺度参数变换输入特征。"""
+        return (np.asarray(X, dtype=float) - self.median_) / self.scale_ * self.multiplier_
 
     def fit_transform(self, X):
+        """拟合当前数据的缩放参数并返回变换后的特征。"""
         return self.fit(X).transform(X)
 
     def inverse_transform(self, Z):
-        return np.asarray(Z, dtype=float) * self.scale_ + self.median_
+        """将缩放后的特征还原到原始量纲。"""
+        unweighted = np.divide(np.asarray(Z, dtype=float), self.multiplier_,
+                               out=np.zeros_like(np.asarray(Z, dtype=float)), where=self.multiplier_ > 0)
+        return unweighted * self.scale_ + self.median_
 
 
-def _kmeans_pp_init(X, k, rng, weights=None):
-    """Arthur & Vassilvitskii (2007) k-means++ seeding."""
+def _kmeans_pp_init(X, k, rng):
+    """按距离平方抽样初始化聚类中心，降低初始点依赖。
+
+    Arthur & Vassilvitskii (2007) k-means++ seeding."""
     n = len(X)
-    w = np.ones(n, dtype=float) if weights is None else np.maximum(np.asarray(weights, dtype=float), 1e-12)
     centers = np.empty((k, X.shape[1]), dtype=float)
-    p0 = w / np.sum(w)
-    centers[0] = X[int(rng.choice(n, p=p0))]
+    centers[0] = X[int(rng.integers(n))]
     min_d2 = np.sum((X - centers[0]) ** 2, axis=1)
     for c in range(1, k):
-        probs = w * min_d2
-        total = float(np.sum(probs))
+        total = float(np.sum(min_d2))
         if total <= 1e-18:
             centers[c] = X[int(rng.integers(n))]
         else:
-            centers[c] = X[int(rng.choice(n, p=probs / total))]
+            centers[c] = X[int(rng.choice(n, p=min_d2 / total))]
         d2 = np.sum((X - centers[c]) ** 2, axis=1)
         min_d2 = np.minimum(min_d2, d2)
     return centers
 
 
 class KMeansModel:
-    """Exact multi-start k-means++ with optional sample weights."""
+    """保存多次初始化择优的 K-means 原型及预测方法。
+
+    Exact multi-start k-means++ clustering."""
 
     def __init__(self, n_clusters=3, n_init=50, max_iter=500, tol=1e-6, seed=42):
+        """配置聚类数、随机种子、重复初始化与收敛限制。"""
         self.n_clusters = int(n_clusters)
         self.n_init = int(n_init)
         self.max_iter = int(max_iter)
@@ -103,17 +112,18 @@ class KMeansModel:
         self.centers_ = None
         self.inertia_ = float("inf")
 
-    def fit(self, X, sample_weight=None):
+    def fit(self, X):
+        """执行多次 K-means++ 初始化，保留簇内平方和最小的解。"""
         X = np.asarray(X, dtype=float)
-        n, d = X.shape
-        w = np.ones(n, dtype=float) if sample_weight is None else np.maximum(np.asarray(sample_weight, dtype=float), 1e-12)
+        if X.ndim != 2 or not np.all(np.isfinite(X)) or len(np.unique(X, axis=0)) < self.n_clusters:
+            raise ValueError("K-means requires finite features and at least k distinct samples")
         rng = np.random.default_rng(self.seed)
 
         best_centers = None
         best_inertia = float("inf")
 
         for _ in range(self.n_init):
-            centers = _kmeans_pp_init(X, self.n_clusters, rng, weights=w)
+            centers = _kmeans_pp_init(X, self.n_clusters, rng)
             for _it in range(self.max_iter):
                 d2 = cdist(X, centers, metric="sqeuclidean")
                 labels = np.argmin(d2, axis=1)
@@ -121,10 +131,8 @@ class KMeansModel:
                 for c in range(self.n_clusters):
                     mask = labels == c
                     if np.any(mask):
-                        wc = w[mask]
-                        new_centers[c] = np.sum(X[mask] * wc[:, None], axis=0) / np.sum(wc)
+                        new_centers[c] = np.mean(X[mask], axis=0)
                     else:
-                        # Re-seed empty cluster to farthest point
                         far = int(np.argmax(np.min(d2, axis=1)))
                         new_centers[c] = X[far]
                 shift = float(np.max(np.linalg.norm(new_centers - centers, axis=1)))
@@ -132,7 +140,7 @@ class KMeansModel:
                 if shift <= self.tol:
                     break
             d2_final = cdist(X, centers, metric="sqeuclidean")
-            inertia = float(np.sum(w * np.min(d2_final, axis=1)))
+            inertia = float(np.sum(np.min(d2_final, axis=1)))
             if inertia < best_inertia:
                 best_inertia = inertia
                 best_centers = centers.copy()
@@ -142,182 +150,30 @@ class KMeansModel:
         return self
 
     def predict(self, X):
+        """返回各样本距离最近的聚类中心编号。"""
         d = cdist(np.asarray(X, dtype=float), self.centers_, metric="euclidean")
         return np.argmin(d, axis=1)
 
     def distance_ratio(self, X):
-        """Return r_i = d_(1) / d_(2) in [0, 1] (values near 1 indicate boundary ambiguity)."""
+        """返回最近与次近原型的距离比，接近一表示边界模糊。
+
+        Return r_i = d_(1) / d_(2) in [0, 1] (values near 1 indicate boundary ambiguity)."""
         d = np.sort(cdist(np.asarray(X, dtype=float), self.centers_, metric="euclidean"), axis=1)
         return d[:, 0] / np.maximum(d[:, 1], 1e-12)
 
-    def predict_proba(self, X):
-        """Inverse-distance soft confidence proxy for reporting consistency."""
-        d2 = cdist(np.asarray(X, dtype=float), self.centers_, metric="sqeuclidean")
-        inv = 1.0 / np.maximum(d2, 1e-12)
-        return inv / np.sum(inv, axis=1, keepdims=True)
-
-
-class FuzzyCMeansModel:
-    """Bezdek (1981) Fuzzy C-Means clustering (fuzzifier m=2.0) with optional sample weights."""
-
-    def __init__(self, n_clusters=3, m=2.0, n_init=30, max_iter=500, tol=1e-6, seed=42):
-        self.n_clusters = int(n_clusters)
-        self.m = float(m)
-        self.n_init = int(n_init)
-        self.max_iter = int(max_iter)
-        self.tol = float(tol)
-        self.seed = int(seed)
-        self.centers_ = None
-        self.objective_ = float("inf")
-
-    def _memberships(self, X, centers):
-        d = cdist(X, centers, metric="euclidean")
-        power = 2.0 / (self.m - 1.0)
-        U = np.zeros_like(d)
-        zero_hit = d < 1e-12
-        any_zero = np.any(zero_hit, axis=1)
-        if np.any(any_zero):
-            U[any_zero] = zero_hit[any_zero] / np.sum(zero_hit[any_zero], axis=1, keepdims=True)
-        nz = ~any_zero
-        if np.any(nz):
-            d_nz = d[nz]
-            # u_ik = (d_ik^-power) / sum_j (d_ij^-power)
-            inv = d_nz ** (-power)
-            U[nz] = inv / np.sum(inv, axis=1, keepdims=True)
-        return U
-
-    def fit(self, X, sample_weight=None):
-        X = np.asarray(X, dtype=float)
-        n = len(X)
-        w = np.ones(n, dtype=float) if sample_weight is None else np.maximum(np.asarray(sample_weight, dtype=float), 1e-12)
-        rng = np.random.default_rng(self.seed)
-
-        best_centers = None
-        best_obj = float("inf")
-        for _ in range(self.n_init):
-            centers = _kmeans_pp_init(X, self.n_clusters, rng, weights=w)
-            for _it in range(self.max_iter):
-                U = self._memberships(X, centers)
-                Um = (U ** self.m) * w[:, None]
-                denom = np.maximum(np.sum(Um, axis=0), 1e-12)
-                new_centers = (Um.T @ X) / denom[:, None]
-                shift = float(np.max(np.linalg.norm(new_centers - centers, axis=1)))
-                centers = new_centers
-                if shift <= self.tol:
-                    break
-            U = self._memberships(X, centers)
-            d2 = cdist(X, centers, metric="sqeuclidean")
-            obj = float(np.sum(w[:, None] * (U ** self.m) * d2))
-            if obj < best_obj:
-                best_obj = obj
-                best_centers = centers.copy()
-
-        self.centers_ = best_centers
-        self.objective_ = best_obj
-        return self
-
-    def predict_proba(self, X):
-        return self._memberships(np.asarray(X, dtype=float), self.centers_)
-
-    def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
-
-
-class DiagonalGMMModel:
-    """Regularized EM Gaussian Mixture Model (diagonal covariance for small-n stability)."""
-
-    def __init__(self, n_clusters=3, n_init=30, max_iter=300, tol=1e-5, reg_covar=1e-3, seed=42):
-        self.n_clusters = int(n_clusters)
-        self.n_init = int(n_init)
-        self.max_iter = int(max_iter)
-        self.tol = float(tol)
-        self.reg_covar = float(reg_covar)
-        self.seed = int(seed)
-        self.centers_ = None
-        self.vars_ = None
-        self.weights_ = None
-        self.log_likelihood_ = -float("inf")
-
-    def _log_prob(self, X, means, variances, pi):
-        d = X.shape[1]
-        log_p = np.empty((len(X), self.n_clusters), dtype=float)
-        for c in range(self.n_clusters):
-            v = np.maximum(variances[c], self.reg_covar)
-            diff = X - means[c]
-            maha = np.sum((diff * diff) / v[None, :], axis=1)
-            log_det = float(np.sum(np.log(v)))
-            log_p[:, c] = np.log(max(pi[c], 1e-12)) - 0.5 * (d * np.log(2.0 * np.pi) + log_det + maha)
-        return log_p
-
-    def fit(self, X, sample_weight=None):
-        X = np.asarray(X, dtype=float)
-        n, d = X.shape
-        w = np.ones(n, dtype=float) if sample_weight is None else np.maximum(np.asarray(sample_weight, dtype=float), 1e-12)
-        w_sum = float(np.sum(w))
-        rng = np.random.default_rng(self.seed)
-
-        best_ll = -float("inf")
-        best_params = None
-        global_var = np.maximum(np.var(X, axis=0), self.reg_covar)
-
-        for _ in range(self.n_init):
-            means = _kmeans_pp_init(X, self.n_clusters, rng, weights=w)
-            variances = np.tile(global_var, (self.n_clusters, 1))
-            pi = np.full(self.n_clusters, 1.0 / self.n_clusters)
-            prev_ll = -float("inf")
-
-            for _it in range(self.max_iter):
-                log_p = self._log_prob(X, means, variances, pi)
-                log_norm = logsumexp(log_p, axis=1)
-                ll = float(np.sum(w * log_norm))
-                resp = np.exp(log_p - log_norm[:, None])
-
-                rw = resp * w[:, None]
-                nk = np.maximum(np.sum(rw, axis=0), 1e-8)
-                pi = nk / w_sum
-                means = (rw.T @ X) / nk[:, None]
-                for c in range(self.n_clusters):
-                    diff = X - means[c]
-                    variances[c] = np.sum(rw[:, c][:, None] * (diff * diff), axis=0) / nk[c] + self.reg_covar
-
-                if abs(ll - prev_ll) <= self.tol * max(1.0, abs(ll)):
-                    prev_ll = ll
-                    break
-                prev_ll = ll
-
-            if prev_ll > best_ll:
-                best_ll = prev_ll
-                best_params = (means.copy(), variances.copy(), pi.copy())
-
-        self.centers_, self.vars_, self.weights_ = best_params
-        self.log_likelihood_ = best_ll
-        return self
-
-    def predict_proba(self, X):
-        log_p = self._log_prob(np.asarray(X, dtype=float), self.centers_, self.vars_, self.weights_)
-        log_norm = logsumexp(log_p, axis=1, keepdims=True)
-        return np.exp(log_p - log_norm)
-
-    def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
-
 
 def semantic_anchor_order(raw_centroids_scaled, feature_names):
-    """Map raw cluster indices -> canonical semantic order (0=convergent, 1=expanded, 2=drooping).
+    """按原型形态将无序簇编号映射到紧缩、舒展和下垂。
 
-    Uses pose score S_c = -z_theta + z_g - z_d - z_K over whichever core pose features are
-    present in feature_names (purely post-hoc semantic relabeling; never changes clustering).
+    Map raw cluster indices -> canonical semantic order (0=convergent, 1=expanded, 2=drooping).
+
+    Uses stem-leaf angle alone to name clusters from small to large basal angle.
+    (purely post-hoc semantic relabeling; never changes clustering).
     """
     signs = {
         "stem_leaf_angle_deg": -1.0,
-        "tip_gain": +1.0,
-        "droop_ratio": -1.0,
-        "pitch_entropy_b12": -0.35,
-        "normal_entropy_b24": -0.35,
-        "midrib_curvature_total": -1.0,
     }
     C = np.asarray(raw_centroids_scaled, dtype=float)
-    # Standardize centroids across the k clusters for equal-scale semantic scoring
     c_std = np.std(C, axis=0)
     Z_c = (C - np.mean(C, axis=0)) / np.where(c_std > 1e-12, c_std, 1.0)
 
@@ -326,7 +182,6 @@ def semantic_anchor_order(raw_centroids_scaled, feature_names):
         if fname in signs:
             scores += signs[fname] * Z_c[:, j]
 
-    # Highest score -> 0 (convergent), middle -> 1 (expanded), lowest -> 2 (drooping)
     order = np.argsort(-scores)
     remap = np.empty(len(C), dtype=int)
     for new_lbl, old_lbl in enumerate(order):
@@ -335,7 +190,9 @@ def semantic_anchor_order(raw_centroids_scaled, feature_names):
 
 
 def adjusted_rand_index(labels_true, labels_pred):
-    """Exact Hubert & Arabie (1985) Adjusted Rand Index."""
+    """计算校正随机一致性的兰德指数 ARI。
+
+    Exact Hubert & Arabie (1985) Adjusted Rand Index."""
     a = np.asarray(labels_true, dtype=int)
     b = np.asarray(labels_pred, dtype=int)
     n = len(a)
@@ -348,6 +205,7 @@ def adjusted_rand_index(labels_true, labels_pred):
     np.add.at(cont, (ia, ib), 1)
 
     def _comb2(arr):
+        """计算计数中不重复样本对的数量，供 ARI 列联表使用。"""
         return np.sum(arr * (arr - 1) // 2)
 
     sum_ij = float(_comb2(cont))
@@ -363,7 +221,9 @@ def adjusted_rand_index(labels_true, labels_pred):
 
 
 def normalized_mutual_info(labels_true, labels_pred):
-    """Arithmetic-mean Normalized Mutual Information: 2 * I(U; V) / (H(U) + H(V))."""
+    """用两组标签的平均熵归一化互信息 NMI。
+
+    Arithmetic-mean Normalized Mutual Information: 2 * I(U; V) / (H(U) + H(V))."""
     a = np.asarray(labels_true, dtype=int)
     b = np.asarray(labels_pred, dtype=int)
     n = float(len(a))
@@ -388,7 +248,9 @@ def normalized_mutual_info(labels_true, labels_pred):
 
 
 def silhouette_score(X, labels):
-    """Exact Rousseeuw (1987) mean Silhouette coefficient over Euclidean distances."""
+    """按欧氏距离计算全样本平均轮廓系数。
+
+    Exact Rousseeuw (1987) mean Silhouette coefficient over Euclidean distances."""
     X = np.asarray(X, dtype=float)
     labels = np.asarray(labels, dtype=int)
     uniq = np.unique(labels)
@@ -410,48 +272,70 @@ def silhouette_score(X, labels):
     return float(np.mean(s))
 
 
-def fit_and_anchor(X_raw, feature_names, method="kmeans", sample_weight=None, seed=42):
-    """Fit RobustScaler + clustering model and remap cluster IDs to canonical semantic order."""
-    scaler = RobustScaler().fit(X_raw)
+def fit_and_anchor(X_raw, feature_names, seed=42, feature_weights=None):
+    """拟合稳健缩放器和三个聚类原型，并统一语义编号。
+
+    Fit RobustScaler + K-means++ (k=3) and remap cluster IDs to canonical semantic order."""
+    if np.asarray(X_raw).ndim != 2 or np.asarray(X_raw).shape[1] != len(feature_names):
+        raise ValueError("Feature names must match matrix columns")
+    scaler = RobustScaler(feature_weights).fit(X_raw)
     Z = scaler.transform(X_raw)
-    if method == "kmeans":
-        model = KMeansModel(n_clusters=3, n_init=50, max_iter=500, seed=seed).fit(Z, sample_weight=sample_weight)
-    elif method == "fcm":
-        model = FuzzyCMeansModel(n_clusters=3, m=2.0, n_init=30, max_iter=500, seed=seed).fit(Z, sample_weight=sample_weight)
-    elif method == "gmm":
-        model = DiagonalGMMModel(n_clusters=3, n_init=30, max_iter=300, seed=seed).fit(Z, sample_weight=sample_weight)
-    else:
-        raise ValueError(f"Unknown method: {method}")
+    model = KMeansModel(n_clusters=3, n_init=50, max_iter=500, seed=seed).fit(Z)
 
     remap, _ = semantic_anchor_order(model.centers_, feature_names)
     inv_order = np.argsort(remap)
-    # Reorder model centroids/parameters in place so label 0=convergent, 1=expanded, 2=drooping
     model.centers_ = model.centers_[inv_order]
-    if method == "gmm":
-        model.vars_ = model.vars_[inv_order]
-        model.weights_ = model.weights_[inv_order]
-
     labels = model.predict(Z)
-    proba = model.predict_proba(Z)
-    return scaler, model, Z, labels, proba
+    return scaler, model, Z, labels
 
 
-def lopo_validate(X_raw, plant_ids, feature_names, method="kmeans", sample_weight=None,
-                  seed=42, n_perm=200):
-    """Strict Leave-One-Plant-Out validation + permutation baseline for Hypothesis H2."""
+def contextual_predict(model, Z, X_raw, plant_ids, feature_names, policy):
+    """结合顶部小叶与原型距离优势解释类别，不要求每株具备三类。
+
+    Apply explicit expert-guided endpoint semantics to globally learned prototypes.
+
+    Compact candidates must be small apical leaves, rather than all low-angle leaves.
+    Endpoint assignments require a clear distance margin; transitions are expanded.
+    There are no per-plant quotas and no requirement that any class occur in a plant.
+    """
+    raw = model.predict(Z)
+    distances = cdist(Z, model.centers_)
+    ratio = np.sort(distances, axis=1)[:, 0] / np.maximum(np.sort(distances, axis=1)[:, 1], 1e-12)
+    if not policy:
+        return raw, raw, ratio
+    if not set(PRIMARY_FEATURES).issubset(feature_names):
+        raise ValueError("Contextual policy requires all four primary features")
+    area = np.asarray(X_raw)[:, feature_names.index("rel_projected_area")]
+    height = np.asarray(X_raw)[:, feature_names.index("relative_height")]
+    plants = np.asarray(plant_ids)
+    top = np.empty(len(plants))
+    for plant in set(plants):
+        mask = plants == plant
+        top[mask] = np.max(height[mask])
+    eligible = ((area <= policy["compact_max_relative_area"])
+                & (top - height <= policy["apical_height_span"]))
+    labels = np.ones(len(raw), dtype=int)
+    compact_margin = distances[:, 0] / np.maximum(np.min(distances[:, 1:], axis=1), 1e-12)
+    droop_margin = distances[:, 2] / np.maximum(distances[:, 1], 1e-12)
+    labels[(raw == 0) & eligible & (compact_margin <= policy["endpoint_distance_ratio"])] = 0
+    labels[(raw == 2) & (droop_margin <= policy["endpoint_distance_ratio"])] = 2
+    return labels, raw, ratio
+
+
+def lopo_validate(X_raw, plant_ids, feature_names, seed=42, n_perm=200, feature_weights=None,
+                  decision_policy=None):
+    """逐株留出并仅用训练株拟合缩放器和聚类，评估标签稳定性。
+
+    Strict Leave-One-Plant-Out validation + permutation baseline for K-means++ (k=3)."""
     X_raw = np.asarray(X_raw, dtype=float)
     plants = np.asarray(plant_ids)
     uniq_plants = sorted(set(plants))
-    w_all = None if sample_weight is None else np.asarray(sample_weight, dtype=float)
+    if len(plants) != len(X_raw) or len(uniq_plants) < 2:
+        raise ValueError("LOPO requires matching plant IDs from at least two plants")
 
-    full_scaler, full_model, Z_full, full_labels, full_proba = fit_and_anchor(
-        X_raw, feature_names, method=method, sample_weight=w_all, seed=seed
-    )
+    full_scaler, full_model, Z_full, full_labels = fit_and_anchor(X_raw, feature_names, seed=seed, feature_weights=feature_weights)
+    full_labels, raw_labels, r_ratio = contextual_predict(full_model, Z_full, X_raw, plants, feature_names, decision_policy)
     full_sil = silhouette_score(Z_full, full_labels)
-
-    # Distance ratio ambiguity on full fit (in scaled feature space)
-    d_sorted = np.sort(cdist(Z_full, full_model.centers_, metric="euclidean"), axis=1)
-    r_ratio = d_sorted[:, 0] / np.maximum(d_sorted[:, 1], 1e-12)
 
     fold_aris = []
     fold_nmis = []
@@ -462,19 +346,14 @@ def lopo_validate(X_raw, plant_ids, feature_names, method="kmeans", sample_weigh
     for p in uniq_plants:
         tr = plants != p
         te = plants == p
-        w_tr = None if w_all is None else w_all[tr]
-        sc_f, mdl_f, _, _, _ = fit_and_anchor(
-            X_raw[tr], feature_names, method=method, sample_weight=w_tr, seed=seed
-        )
-        # Predict all 90 leaves and specifically out-of-sample held-out plant leaves
+        sc_f, mdl_f, _, _ = fit_and_anchor(X_raw[tr], feature_names, seed=seed, feature_weights=feature_weights)
         Z_all_f = sc_f.transform(X_raw)
-        pred_all = mdl_f.predict(Z_all_f)
+        pred_all, _, _ = contextual_predict(mdl_f, Z_all_f, X_raw, plants, feature_names, decision_policy)
         oof_labels[te] = pred_all[te]
 
         fold_aris.append(adjusted_rand_index(full_labels, pred_all))
         fold_nmis.append(normalized_mutual_info(full_labels, pred_all))
         fold_switch_rates.append(float(np.mean(pred_all != full_labels)))
-        # Centroid drift measured in full-fit scaled space for direct comparability
         c_raw_f = sc_f.inverse_transform(mdl_f.centers_)
         c_in_full = full_scaler.transform(c_raw_f)
         fold_drifts.append(float(np.mean(np.linalg.norm(c_in_full - full_model.centers_, axis=1))))
@@ -483,22 +362,24 @@ def lopo_validate(X_raw, plant_ids, feature_names, method="kmeans", sample_weigh
     oof_nmi = normalized_mutual_info(full_labels, oof_labels)
     oof_switch = float(np.mean(oof_labels != full_labels))
 
-    # Random permutation null baseline for H2: ARI_LOPO > ARI_random
     rng = np.random.default_rng(seed)
     perm_aris = [adjusted_rand_index(full_labels, rng.permutation(full_labels)) for _ in range(n_perm)]
     perm_p = float((1 + np.sum(np.asarray(perm_aris) >= oof_ari)) / (n_perm + 1))
 
     return {
-        "method": method,
+        "method": "kmeans",
         "features": list(feature_names),
-        "weighted": w_all is not None,
         "full_labels": full_labels,
+        "raw_labels": raw_labels,
+        "decision_policy": decision_policy,
         "oof_labels": oof_labels,
-        "full_proba": full_proba,
         "distance_ratio": r_ratio,
         "Z_full": Z_full,
         "centers_scaled": full_model.centers_,
         "centers_raw": full_scaler.inverse_transform(full_model.centers_),
+        "scaler_median": full_scaler.median_,
+        "scaler_iqr": full_scaler.scale_,
+        "feature_weights": full_scaler.multiplier_ ** 2,
         "metrics": {
             "silhouette": full_sil,
             "lopo_fold_ari_mean": float(np.mean(fold_aris)),
