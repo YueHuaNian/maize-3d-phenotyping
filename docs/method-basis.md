@@ -12,11 +12,11 @@
 
 本项目先对单叶去重，再计算：
 
-$$
-\delta=\operatorname{median}_i\min_{j\ne i}\|p_i-p_j\|,\qquad
+```math
+\delta=\mathrm{median}_i\min_{j\ne i}\|p_i-p_j\|,\qquad
 D=\|Q_{0.99}(p)-Q_{0.01}(p)\|,\qquad
 r=\max(5\delta,0.02D).
-$$
+```
 
 其中分位数逐坐标计算。距离项都具有长度单位，整体缩放点云时，连接半径也同比缩放。用分位范围代替最大最小范围，可以减少少量远处飞点对半径的影响。
 
@@ -26,17 +26,17 @@ $$
 
 **原理与选择理由：** SOR 根据点到近邻的平均距离识别稀疏离群点。本项目将普通均值、标准差阈值改为中位数、MAD 阈值，并逐断片计算，减少离群距离及块间密度差异的影响。原始 SOR 见 [PCL 文档](https://pointclouds.org/documentation/tutorials/statistical_outlier.html)，稳健尺度定义见 [NIST MAD 文档](https://www.itl.nist.gov/div898/software/dataplot/refman2/auxillar/mad.htm)。
 
-$$
+```math
 d_i=\frac1K\sum_{j\in N_K(i)}\|p_i-p_j\|,\quad
-m=\operatorname{median}(d_i),\quad
-\operatorname{MAD}=\operatorname{median}|d_i-m|.
-$$
+m=\mathrm{median}(d_i),\quad
+\mathrm{MAD}=\mathrm{median}|d_i-m|.
+```
 
 保留条件为：
 
-$$
-d_i\le m+3.5\times1.4826\operatorname{MAD},\qquad K=8.
-$$
+```math
+d_i\le m+3.5\times1.4826\mathrm{MAD},\qquad K=8.
+```
 
 `1.4826 ≈ 1/Φ⁻¹(0.75)` 是正态分布下把 MAD 换成标准差尺度的系数；它不说明扫描误差一定正态。`K=8`、`3.5` 和删除过多时撤销的保护规则，是本项目设置。MAD 退化时回退到普通标准差。源码：[`geometry.py::sor_filter / clean_leaf_points`](../src/maize_leaf/geometry.py)。
 
@@ -44,17 +44,17 @@ $$
 
 **P-spline：** 用 B 样条表达曲线，通过下列形式的目标拟合：
 
-$$
+```math
 \min_c\ \|W^{1/2}(y-Bc)\|^2+\lambda\|D_2c\|^2.
-$$
+```
 
 第一项要求曲线贴近数据，第二项抑制相邻系数的剧烈变化。程序用广义交叉验证（GCV）选择平滑强度，并在相应调用中约束系数范围。选择理由是扫描中心点有噪声，而后续角度计算需要连续方向。方法依据为 [Eilers 与 Marx（1996）](https://doi.org/10.1214/ss/1038425655)。这是数值平滑约束，没有假定玉米茎叶服从样条生长规律。
 
 **L1 骨架：** 局部中心可由加权距离和最小化表示：
 
-$$
+```math
 \min_x\sum_j w_j\|x-p_j\|.
-$$
+```
 
 程序借鉴 [Huang 等（2013）](https://doi.org/10.1145/2461912.2461913)的局部 L1 吸引与排斥思想，再用近邻图路径排序、平滑曲线和主轴回退形成中脉。该实现包含项目自己的采样、连接和回退规则，文献不保证本地骨架一定等于解剖学中脉。
 
@@ -66,9 +66,9 @@ $$
 
 在活动参数域中，叶面可概括为：
 
-$$
+```math
 S(s,v)=C(s)+r(s,v)b(s)+q(s,v)n(s).
-$$
+```
 
 这里 `s` 表示沿叶长的位置，`v` 表示横向位置，`r` 控制左右宽度，`q` 表示相对参考面的起伏；源码另有左右边界缩放和叶尖收束处理。
 
@@ -76,12 +76,12 @@ $$
 
 源码的参考宽度函数为：
 
-$$
+```math
 \frac{w(u)}{W}=\begin{cases}
-1-(1-k_{\rm lig})\left(\frac{x_m-u}{x_m}\right)^{c_2},&0\le u\le x_m,\\
+1-(1-k_\mathrm{lig})\left(\frac{x_m-u}{x_m}\right)^{c_2},&0\le u\le x_m,\\
 1-\left(\frac{u-x_m}{1-x_m}\right)^{c_1},&x_m<u\le1.
 \end{cases}
-$$
+```
 
 其中 `u=s/L`，`W` 为参考最大宽度，`x_m` 为最大宽度位置，`k_lig` 为基部宽度比例，`c₁、c₂` 控制两段的形状。实际叶宽还受观测包络约束。拟合将观测宽度残差和标准化先验残差一起交给 `soft_l1` 稳健损失处理，先验惩罚强度和参数边界属于本地正则化设置。
 
@@ -93,10 +93,10 @@ $$
 
 **原理与选择理由：** 对局部高度场拟合，在贴合代表点的同时惩罚过度弯折。二维薄板样条的核为 `φ(r)=r²ln(r)`，在零处连续取零；其经典平滑目标可写为：
 
-$$
+```math
 \min_f\ \sum_i(y_i-f(u_i,v_i))^2+
 \lambda\iint(f_{uu}^2+2f_{uv}^2+f_{vv}^2)\,du\,dv.
-$$
+```
 
 薄板样条的变分依据见 [Duchon（1977）](https://doi.org/10.1007/BFb0086566)。本项目对分箱中位代表点拟合，用广义最大似然（GML）选择平滑强度；GCV 与 GML 的依据见 [Wahba（1985）](https://doi.org/10.1214/aos/1176349743)。
 
@@ -108,10 +108,10 @@ $$
 
 候选排序分数为：
 
-$$
+```math
 J=Q_{0.95}(d_{p\to S})+0.5Q_{0.50}(d_{p\to S})+
-\operatorname{mean}_{A}(d_{S\to p}).
-$$
+\mathrm{mean}_{A}(d_{S\to p}).
+```
 
 点到面距离由密集曲面采样点的最近距离近似，反向项按三角面面积加权。它是本项目的工程评分，不是概率似然；通过方向筛选后按分数顺序接受通过质量检查的候选。
 
@@ -125,21 +125,21 @@ $$
 
 令模型表面中心轨迹 `M(s)=S(s,0)`，叶长由弧长计算：
 
-$$
+```math
 L=\int\|M'(s)\|\,ds.
-$$
+```
 
 程序对中心轨迹采样、平滑后数值求长。三角面顶点为 `a,b,c` 时，面积及叶面积为：
 
-$$
+```math
 A_f=\tfrac12\|(b-a)\times(c-a)\|,\qquad A=\sum_f A_f.
-$$
+```
 
 令 `t̂_s` 为叶基附近向上的茎秆单位切向；将叶基前 15% 范围内的叶面纵向单位切向按面积平均，再归一化为 `t̂_b`。茎叶角为：
 
-$$
+```math
 \theta=\arccos(\hat t_s\cdot\hat t_b),\qquad 0\le\theta\le180^\circ.
-$$
+```
 
 **选择理由：** 弧长跟随弯曲叶片，面积累加跟随三维叶面；基部方向平均可降低单点导数波动。它保留对基部张开方向的测量，但整片叶尖的垂落不能完全由一个基部角度代表。植物依据见下文；15% 窗口属于项目估计设置。
 
@@ -149,18 +149,18 @@ $$
 
 **水平投影：** 由平面投影的余弦关系得到：
 
-$$
-A_{\rm proj}=\sum_f A_f|n_f\cdot e_z|,\qquad
-P_i=\frac{A_{{\rm proj},i}}{\max_{j\in\text{同株}}A_{{\rm proj},j}}.
-$$
+```math
+A_\mathrm{proj}=\sum_f A_f|n_f\cdot e_z|,\qquad
+P_i=\frac{A_{\mathrm{proj},i}}{\max_{j\in\text{同株}}A_{\mathrm{proj},j}}.
+```
 
 `n_f` 是面片单位法向。该值把各面片投影相加，重叠部分重复计入；叶片折叠、倾斜和实际大小都会影响结果。选择同株归一化是为了保留株内相对大小，不能把 `P` 单独解释成展开比例、真实面积比例或光合效率。投影并集另由光栅化计算，二者没有混用。
 
 **相对着生高度：**
 
-$$
-h_i=\operatorname{clip}\left(\frac{z_{{\rm base},i}-z_{\rm stem,min}}{z_{\rm stem,max}-z_{\rm stem,min}},0,1\right).
-$$
+```math
+h_i=\mathrm{clip}\left(\frac{z_{\mathrm{base},i}-z_{\mathrm{stem,min}}}{z_{\mathrm{stem,max}}-z_{\mathrm{stem,min}}},0,1\right).
+```
 
 选择它是为了提供株内位置线索，并消除整体长度尺度；它依赖扫描茎秆的范围，也不等于叶序、叶龄或发育时间。
 
@@ -170,16 +170,16 @@ $$
 
 沿叶长的单位切向为 `t̂(s,v)`，俯仰角为：
 
-$$
+```math
 \varphi=\arcsin(\hat t\cdot e_z),\qquad -90^\circ\le\varphi\le90^\circ.
-$$
+```
 
 把该范围等分成 `B=12` 档，按叶面面积计算每档比例 `p_b`：
 
-$$
+```math
 p_b=\frac{\int_{\varphi\in b}dA}{\int dA},\qquad
 H=-\frac{\sum_{b:p_b>0}p_b\ln p_b}{\ln B}.
-$$
+```
 
 熵定义依据 [Shannon（1948）](https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf)；面积权重使统计对象是叶面面积，而不是某一区域扫描点的数量。归一化后 `H∈[0,1]`。
 
@@ -191,11 +191,11 @@ $$
 
 先稳健缩放，再定义加权平方距离：
 
-$$
-\tilde x_{ij}=\frac{x_{ij}-\operatorname{median}(x_j)}{\operatorname{IQR}(x_j)},\qquad
+```math
+\tilde x_{ij}=\frac{x_{ij}-\mathrm{median}(x_j)}{\mathrm{IQR}(x_j)},\qquad
 d_{ic}^2=\sum_{j=1}^{4}w_j(\tilde x_{ij}-\mu_{cj})^2,
 \qquad w=(1,1,1,0.5).
-$$
+```
 
 IQR 退化时，代码回退到标准差或单位尺度。K-means 最小化样本到所分配中心的平方距离总和；K-means++ 用距离相关概率初始化中心，依据为 [Arthur 与 Vassilvitskii（2007）](https://theory.stanford.edu/~sergei/papers/kMeansPP-soda.pdf)。
 
