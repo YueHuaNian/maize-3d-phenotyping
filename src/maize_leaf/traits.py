@@ -194,6 +194,24 @@ def midrib_pose_and_curvature(model, stem_curve, stem_bounds, stem_z_sign, n_sam
     }
 
 
+def far_end_height_diff(vertices, stem_sampled, base_z):
+    """查找叶面上距茎秆中心线最远的顶点，计算其与叶基的高度差。
+
+    Signed height difference z_far - z_base between the leaf-surface vertex with
+    maximum 3D Euclidean distance to the stem centerline and the leaf base."""
+    verts = np.asarray(vertices, dtype=float)
+    stem = np.asarray(stem_sampled, dtype=float)
+    dists = cKDTree(stem).query(verts)[0]
+    far_idx = int(np.argmax(dists))
+    far_xyz = verts[far_idx]
+    return {
+        "far_end_xyz": far_xyz.tolist(),
+        "far_end_z": float(far_xyz[2]),
+        "far_end_stem_dist": float(dists[far_idx]),
+        "far_end_height_diff": float(far_xyz[2] - float(base_z)),
+    }
+
+
 def _basal_surface_tangent_from_grid(xyz, s_vals, v_vals):
     """在基部叶面窗口对纵向切向及横向轴进行面积加权积分。
 
@@ -546,8 +564,9 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
         sv, faces = model.mesh_grid(mesh_nu, mesh_nv)
         verts = model.evaluate(sv)
 
-        # 第一组表型：姿态、基部叶面茎叶角与中脉曲率。
+        # 第一组表型：姿态、基部叶面茎叶角、离茎最远端高度差与中脉曲率。
         pose = midrib_pose_and_curvature(model, stem_curve, stem_bounds, stem_z_sign)
+        far_end = far_end_height_diff(verts, stem_sampled, pose["base_z"])
         basal_ang = basal_surface_stem_leaf_angle(
             model, stem_curve, stem_bounds, stem_z_sign, basal_span_frac=basal_span_frac
         )
@@ -615,6 +634,9 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
             "base_z_inclination_deg": pose["base_z_inclination_deg"],
             "base_to_stem_dist": pose["base_to_stem_dist"],
             "base_z": pose["base_z"],
+            "far_end_z": far_end["far_end_z"],
+            "far_end_stem_dist": far_end["far_end_stem_dist"],
+            "far_end_height_diff": far_end["far_end_height_diff"],
             "tip_gain": pose["tip_gain"],
             "droop_ratio": pose["droop_ratio"],
             "straightness": pose["straightness"],

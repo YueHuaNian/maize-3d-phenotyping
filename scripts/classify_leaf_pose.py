@@ -1,9 +1,10 @@
-"""阶段 3（主入口）：基于三项形态特征与相对着生高度的玉米叶片姿态三分类。
+"""阶段 3（主入口）：基于五项形态与位置特征的玉米叶片姿态三分类。
 
 功能说明：
     读取阶段 2 表型表（默认 outputs/phenotypes_v2/leaf_traits.csv），执行：
-    1. 特征构造：茎叶角 θ、同株相对投影面积 P、纵轴俯仰角信息熵 H_pitch 与相对茎高 h；
-    2. 标准化与加权：在每个 LOPO 训练折内拟合 median/IQR，再按平方距离权重 [1, 1, 1, w_h] 缩放；
+    1. 特征构造：茎叶角 θ、同株相对投影面积 P、纵轴俯仰角信息熵 H_pitch、相对茎高 h 与
+       离茎最远端相对叶基高度差 Δz（z_far - z_base）；
+    2. 标准化与加权：在每个 LOPO 训练折内拟合 median/IQR，再按平方距离权重 [1, 1, 1, w_h, w_dz] 缩放；
     3. 聚类与语义判定：全局 K-means++（k=3）学习三类原型，结合顶部小型幼叶与端点距离比规则输出
        紧缩 / 舒展 / 下垂标签（每株不设强制类别配额）；
     4. 稳定性与敏感性评估：14 株留一株交叉验证（LOPO）、特征消融、高度权重扫描与距离比敏感性；
@@ -14,7 +15,7 @@
     因高度已作为聚类输入，其高度分层结果仅作描述统计，不作独立验证。
 
 常用命令：
-    python scripts/classify_leaf_pose.py --height-weight 0.5
+    python scripts/classify_leaf_pose.py --height-weight 1.0 --far-height-diff-weight 1.0
 """
 import argparse
 import csv
@@ -36,14 +37,16 @@ import scipy
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from maize_leaf.classification import (
-    ABLATION_MODELS, CLASS_NAMES, DEFAULT_HEIGHT_WEIGHT, DEFAULT_POSE_POLICY, PRIMARY_FEATURES,
-    adjusted_rand_index, lopo_validate, contextual_predict, KMeansModel,
+    ABLATION_MODELS, CLASS_NAMES, DEFAULT_FAR_HEIGHT_DIFF_WEIGHT, DEFAULT_HEIGHT_WEIGHT,
+    DEFAULT_POSE_POLICY, PRIMARY_FEATURES, adjusted_rand_index, lopo_validate,
+    contextual_predict, KMeansModel,
 )
 from maize_leaf.io import write_json
 from maize_leaf.viz import ensure_plotly_js
 
 COLORS = ["#1f77b4", "#1b9e77", "#d95f02"]
 HEIGHT_DEFINITION = "clip((leaf_base_z - stem_min_z) / (stem_max_z - stem_min_z), 0, 1)"
+FAR_HEIGHT_DIFF_DEFINITION = "z_far - z_base, where far is the leaf surface vertex with maximum 3D distance to the stem centerline"
 
 
 def load_traits(path):
@@ -104,7 +107,7 @@ def make_diagnostics(output, primary, ablations, sensitivity, rows):
         fig.add_trace(go.Scatter(x=pcs[mask, 0], y=pcs[mask, 1], mode="markers", name=name,
                                 text=hover, hovertemplate="%{text}<extra>%{fullData.name}</extra>",
                                 marker=dict(color=COLORS[c], size=8)), row=1, col=1)
-        fig.add_trace(go.Bar(x=["Angle", "Projection", "Entropy", "Height"],
+        fig.add_trace(go.Bar(x=["Angle", "Projection", "Entropy", "Height", "Far Δz"],
                             y=primary["centers_scaled"][c], name=name, marker_color=COLORS[c],
                             showlegend=False), row=1, col=2)
     keys = list(ablations)
@@ -116,38 +119,45 @@ def make_diagnostics(output, primary, ablations, sensitivity, rows):
                             y=[r["lopo_oof_ari"] for r in sensitivity], mode="lines+markers",
                             name="Height sweep: OOF ARI", line=dict(color="#d95f02")), row=2, col=2)
     fig.update_layout(template="plotly_white", height=800, width=1200, barmode="group",
-                      margin=dict(t=85, b=100), title="Three morphology factors + relative insertion height",
+                      margin=dict(t=85, b=100), title="Five-factor leaf pose classification",
                       legend=dict(orientation="h", y=-0.14))
     fig.update_xaxes(title_text="Squared-distance height weight", row=2, col=2)
     fig.write_html(str(output / "classification_analysis.html"), include_plotlyjs="assets/plotly.min.js")
 
 
-def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
-    """执行完整的四因素三分类、特征消融、权重/规则敏感性分析并导出报告与图表。"""
+def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT,
+        far_height_diff_weight=DEFAULT_FAR_HEIGHT_DIFF_WEIGHT):
+    """执行完整的五因素三分类、特征消融、权重/规则敏感性分析并导出报告与图表。"""
     if not np.isfinite(height_weight) or height_weight < 0:
         raise ValueError("Height weight must be finite and nonnegative")
+    if not np.isfinite(far_height_diff_weight) or far_height_diff_weight < 0:
+        raise ValueError("Far-end height difference weight must be finite and nonnegative")
     t0 = time.time()
     # 1. 加载表型表并准备植株分组与高度数组
     rows = load_traits(traits_csv)
     plants = np.array([r["plant_id"] for r in rows])
     heights = np.array([r["relative_height"] for r in rows])
 
-    def fit(features, weight=height_weight):
+    def fit(features, weight=height_weight, far_weight=far_height_diff_weight):
         # 仅主模型使用显式顶部幼叶/端点语义规则，消融对照使用原始原型聚类
-        """按指定特征与高度权重拟合全局原型并应用统一语义规则。"""
+        """按指定特征与高度/远端高差权重拟合全局原型并应用统一语义规则。"""
         X = np.array([[float(r[name]) for name in features] for r in rows])
-        weights = [weight if name == "relative_height" else 1.0 for name in features]
+        weights = [
+            weight if name == "relative_height"
+            else (far_weight if name == "far_end_height_diff" else 1.0)
+            for name in features
+        ]
         return lopo_validate(X, plants, features, seed=seed, feature_weights=weights,
                              decision_policy=DEFAULT_POSE_POLICY if features == PRIMARY_FEATURES else None)
 
-    # 2. 运行 M1–M5 消融及不同高度权重（0、0.25、0.5、1、2）敏感性扫描
+    # 2. 运行 M1–M6 消融及不同高度权重（0、0.25、0.5、1、2）敏感性扫描
     outcomes = {}
     for name, features in ABLATION_MODELS.items():
         outcomes[name] = fit(features)
         metrics = outcomes[name]["metrics"]
         print(f"{name}: OOF ARI={metrics['lopo_oof_ari']:.4f}; "
               f"switch={metrics['lopo_oof_switch_rate_pct']:.1f}%; counts={metrics['class_counts']}", flush=True)
-    primary = outcomes["M5_primary"]
+    primary = outcomes["M6_primary"]
     no_height = outcomes["M3_morphology"]
     sensitivity = []
     for weight in sorted({0.0, 0.25, 0.5, 1.0, 2.0, float(height_weight)}):
@@ -164,7 +174,8 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
         oof = int(primary["oof_labels"][i])
         record = {"plant_id": row["plant_id"], "leaf_id": int(row["leaf_id"])}
         for name in ["stem_leaf_angle_deg", "projection_ratio", "rel_projected_area", "pitch_entropy_b12", "relative_height",
-                     "stem_rel_height", "norm_base_height", "projected_area_element", "surface_area",
+                     "stem_rel_height", "norm_base_height", "far_end_height_diff", "far_end_stem_dist",
+                     "projected_area_element", "surface_area",
                      "quality_weight", "coverage_observed", "coverage_extrapolated", "tip_gain", "droop_ratio"]:
             record[name] = float(row[name])
         record.update(cluster_kmeans=CLASS_NAMES[lbl], cluster_kmeans_id=lbl,
@@ -207,22 +218,24 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
         policy_sensitivity.append({"endpoint_distance_ratio": ratio,
                                    "class_counts": {CLASS_NAMES[c]: int(np.sum(labels == c)) for c in range(3)}})
     report = {
-        "schema_version": "four_factor_apical_young_v2",
+        "schema_version": "five_factor_apical_young_v3",
         "traits_csv": os.path.relpath(traits_csv, ROOT).replace("\\", "/"),
         "traits_sha256": hashlib.sha256(Path(traits_csv).read_bytes()).hexdigest(),
         "source_sha256": {s: hashlib.sha256((ROOT / s).read_bytes()).hexdigest() for s in sources},
         "versions": {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__},
         "seed": seed, "n_plants": len(plant_rows), "n_leaves": len(rows),
         "primary_model": {
-            "scheme": "three_morphology_plus_height_apical_young", "features": PRIMARY_FEATURES,
+            "scheme": "five_factor_apical_young", "features": PRIMARY_FEATURES,
             "algorithm": "kmeans++ with explicit apical-young endpoint policy",
             "decision_policy": DEFAULT_POSE_POLICY,
             "per_plant_class_quota": None, "n_clusters": 3, "n_init": 50, "max_iter": 500,
             "scaler": "training-fold median/IQR, then multiply by sqrt(distance weight)",
             "height_excluded_from_clustering": False, "height_source_column": "stem_rel_height",
             "height_definition": HEIGHT_DEFINITION, "height_weight": height_weight,
+            "far_height_diff_definition": FAR_HEIGHT_DIFF_DEFINITION,
+            "far_height_diff_weight": far_height_diff_weight,
             "feature_distance_weights": primary["feature_weights"].tolist(),
-            "weight_selection": "Fixed initial weight; sensitivity sweep does not change the primary choice",
+            "weight_selection": "Fixed initial weights; sensitivity sweep does not change the primary choice",
             "semantic_labels": "Small apical candidates may be compact; confident drooping endpoints remain drooping; transitions are expanded",
             "scaler_median": primary["scaler_median"].tolist(), "scaler_iqr": primary["scaler_iqr"].tolist(),
             "centers_weighted_scaled": primary["centers_scaled"].tolist(),
@@ -235,6 +248,7 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
         "interpretation": {
             "stability": "LOPO OOF ARI compares held-out predictions with the full-data partition; no external truth labels",
             "height": "Height is an input. Its class distribution is descriptive, not independent biological validation",
+            "far_height_diff": "Signed vertical offset z_far - z_base (input coordinate units) from leaf base to the leaf-surface point farthest from the stem centerline; distinguishes upward vs downward overall lift",
             "projection": "Element horizontal projection / maximum element projection in the same plant; retains relative leaf size; geometry proxy, not photosynthetic capacity",
             "entropy": "Area-weighted longitudinal tangent pitch entropy, 12 fixed bins; not a signed droop measure",
             "development_policy": "Apical small-leaf limits and distance margin are expert-guided initial settings, not validated biological constants; no forced class counts",
@@ -253,15 +267,17 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT):
 
 def main():
     # 解析命令行参数（默认读取 outputs/phenotypes_v2，输出至 outputs/classification_v2）
-    """解析四因素分类、留一株验证及敏感性分析参数。"""
+    """解析五因素分类、留一株验证及敏感性分析参数。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--traits-csv", type=Path, default=ROOT / "outputs/phenotypes_v2/leaf_traits.csv", help="阶段 2 逐叶表型 CSV 路径")
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/classification_v2", help="分类结果与诊断页输出目录")
     parser.add_argument("--seed", type=int, default=42, help="K-means++ 与置换检验随机种子")
     parser.add_argument("--height-weight", type=float, default=DEFAULT_HEIGHT_WEIGHT,
                         help="标准化后相对着生高度的平方距离权重（设为 0 表示屏蔽高度特征）")
+    parser.add_argument("--far-height-diff-weight", type=float, default=DEFAULT_FAR_HEIGHT_DIFF_WEIGHT,
+                        help="标准化后离茎最远端相对叶基高度差的平方距离权重（设为 0 表示屏蔽该特征）")
     args = parser.parse_args()
-    run(args.traits_csv, args.output, args.seed, args.height_weight)
+    run(args.traits_csv, args.output, args.seed, args.height_weight, args.far_height_diff_weight)
 
 
 if __name__ == "__main__":

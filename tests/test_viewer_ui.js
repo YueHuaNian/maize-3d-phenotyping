@@ -10,7 +10,7 @@ const script = html.split('<script>')[1].split('</script>')[0];
 const leaves = ['convergent', 'expanded', 'drooping'].map((key, i) => ({
   leaf_id: i + 1, support_review_required:i===2,
   classification: {cluster_kmeans: key, cluster_kmeans_lopo_oof: key,
-    relative_height: .9 - .3 * i, stem_leaf_angle_deg: 20 + 25 * i,
+    relative_height: .9 - .3 * i, far_end_height_diff: .4 - .3 * i, stem_leaf_angle_deg: 20 + 25 * i,
     projection_ratio: .5, rel_projected_area: .3 + .3*i, pitch_entropy_b12: .7, coverage_observed: .8,
     coverage_extrapolated: .1, ambiguous_r080: i === 1, lopo_switched: i === 2,
     changed_by_height: i === 2, cluster_without_height: 'expanded', distance_ratio_r: .7},
@@ -42,7 +42,7 @@ async function check(offline) {
   const catalog = {p1: [1, 2, 3], p2: [1, 2, 3]};
   const bootstrap = {offline, catalog, initial_plant: 'p1', initial_leaf: null,
     initial_color_by: 'kmeans', has_classification: true,
-    classification_metadata: {primary_model: {height_weight: .5}}, payload};
+    classification_metadata: {primary_model: {height_weight: 1.0, far_height_diff_weight: 1.0}}, payload};
   const context = vm.createContext({
     console, URLSearchParams, Number, Map, Set, requestAnimationFrame:fn=>setTimeout(fn,0),
     document: {getElementById: id => elements.get(id)},
@@ -78,8 +78,9 @@ async function check(offline) {
   await context.ready;
   const surfaces = () => plots.get('plot').filter(t => t.type === 'mesh3d' && t.visible!==false);
   assert.equal(surfaces().length, 3);
-  assert.match(elements.get('modelNote').textContent, /0\.50/);
+  assert.match(elements.get('modelNote').textContent, /1\.00/);
   assert.match(elements.get('leafList').innerHTML, /相对高度/);
+  assert.match(elements.get('leafList').innerHTML, /远端高差/);
 
   await vm.runInContext('state.leaf=2; render()', context);
   assert.equal(surfaces().length, 3); // 选叶保留整株背景和网格缓冲。
@@ -92,6 +93,7 @@ async function check(offline) {
   assert.equal(surfaces()[0].meta.leaf_id,2);
   elements.get('isolateLeaf').checked=false;
   assert.match(elements.get('selectionInfo').innerHTML, /相对着生高度/);
+  assert.match(elements.get('selectionInfo').innerHTML, /远端高差/);
   const marker=plots.get('plot').find(t=>t.name==='当前叶片');
   assert.deepEqual(Array.from(marker.x),[1]);
 

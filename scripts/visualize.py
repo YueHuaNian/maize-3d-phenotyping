@@ -47,7 +47,7 @@ CLASS_META = {
 }
 
 COLOR_MODE_COLUMNS = {
-    "kmeans": ("cluster_kmeans", "四因素姿态分类 (K-means)"),
+    "kmeans": ("cluster_kmeans", "五因素姿态分类 (K-means)"),
 }
 
 
@@ -87,6 +87,8 @@ def load_classifications(csv_path):
                 norm_base_height=_parse_float(row.get("norm_base_height")),
                 relative_height=_parse_float(row.get("relative_height", row.get("stem_rel_height", row.get("norm_base_height")))),
                 stem_rel_height=_parse_float(row.get("stem_rel_height")),
+                far_end_height_diff=_parse_float(row.get("far_end_height_diff")),
+                far_end_stem_dist=_parse_float(row.get("far_end_stem_dist")),
                 projected_area_element=_parse_float(row.get("projected_area_element")),
                 coverage_observed=_parse_float(row.get("coverage_observed")),
                 coverage_extrapolated=_parse_float(row.get("coverage_extrapolated")),
@@ -119,7 +121,7 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
     """组合叶片编号、分类、四因素和质量提示文字。"""
     if not cls_rec:
         return f"叶片 {leaf_id}"
-    col, mode_label = COLOR_MODE_COLUMNS.get(active_mode, ("cluster_kmeans", "四因素姿态分类 (K-means)"))
+    col, mode_label = COLOR_MODE_COLUMNS.get(active_mode, ("cluster_kmeans", "五因素姿态分类 (K-means)"))
     cls_key = cls_rec.get(col, "")
     cm = _class_info(cls_key)
     flags = []
@@ -133,7 +135,7 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
     return (
         f"<b>叶片 {leaf_id} · {cm['zh']} ({cm['en']})</b> [{mode_label}]"
         f"<br>茎叶角 θ={fmt('stem_leaf_angle_deg', 1)}° | 同株相对投影面积 P={fmt('rel_projected_area')} | 俯仰熵 H={fmt('pitch_entropy_b12')}"
-        f"<br>相对着生高度 h={fmt('relative_height')} | 观测覆盖率={fmt('coverage_observed')}"
+        f"<br>相对着生高度 h={fmt('relative_height')} | 远端高差 Δz={fmt('far_end_height_diff')} | 观测覆盖率={fmt('coverage_observed')}"
         f"<br>边界比 r={fmt('distance_ratio_r')}"
         f"{flag_line}"
     )
@@ -538,23 +540,24 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
         index_rows.append(f'<tr><td><a href="plant_{escape(plant, quote=True)}.html">{escape(plant)}</a></td>'
                           f'<td>{n}</td>{cells}<td>{info["n_ambiguous"]}</td></tr>')
     weight = metadata.get("primary_model", {}).get("height_weight", "未记录")
+    far_weight = metadata.get("primary_model", {}).get("far_height_diff_weight", "未记录")
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>玉米叶片 · 四因素分类总览</title>
+<title>玉米叶片 · 五因素分类总览</title>
 <style>body{{margin:0;background:#f2f5f3;color:#183e32;font:15px/1.6 system-ui,'Microsoft YaHei',sans-serif}}
 header{{background:#123f33;color:#fff;padding:24px}}h1{{font-size:24px;margin:0}}
 main{{max-width:1100px;margin:auto;padding:24px}}.card{{background:#fff;padding:20px;border:1px solid #dce5df;border-radius:12px;margin-bottom:18px}}
 table{{border-collapse:collapse;width:100%}}th,td{{text-align:left;padding:11px;border-bottom:1px solid #e5ece7}}
 a{{color:#197452}}.chips{{display:flex;gap:20px;flex-wrap:wrap}}.table-scroll{{overflow:auto}}
-</style><header><h1>玉米叶片 · 四因素姿态分类</h1>
-<div>茎叶角 θ · 同株相对投影面积 P · 俯仰熵 H · 相对茎秆着生高度 h</div></header><main>
+</style><header><h1>玉米叶片 · 五因素姿态分类</h1>
+<div>茎叶角 θ · 同株相对投影面积 P · 俯仰熵 H · 相对茎秆着生高度 h · 远端高差 Δz</div></header><main>
 <div class="card chips"><b>{len(catalog)} 株 / {total} 片叶</b><span>紧缩 {counts['convergent']}</span>
 <span>舒展 {counts['expanded']}</span><span>下垂 {counts['drooping']}</span>
 <span>边界模糊 {ambiguous}</span></div>
 <div class="card"><b>点击植株打开交互视图</b><div class="table-scroll"><table>
 <tr><th>植株</th><th>叶片数</th><th>紧缩</th><th>舒展</th><th>下垂</th><th>边界</th></tr>
 {''.join(index_rows)}</table></div></div>
-<div class="card">高度距离权重：{weight}（标准化后）。<br>
+<div class="card">高度权重：{weight}，远端高差权重：{far_weight}（标准化后）。<br>
 紧缩候选为顶部小型未充分展开叶；没有每株类别配额。高度分布仅用于描述；下垂不等于衰老。<br>
 <a href="../classification_analysis.html">查看交互式消融与高度权重对比</a> ·
 <a href="../leaf_classifications.csv">逐叶分类表</a> · <a href="../classification_report.json">参数与验证记录</a>

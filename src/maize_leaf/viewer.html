@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>玉米叶片 · 四因素姿态分类</title>
+<title>玉米叶片 · 五因素姿态分类</title>
 <script src="__PLOTLY_SRC__"></script>
 <style>
 /* 页面布局与窄屏适配；图层显隐由脚本控制。 */
@@ -32,9 +32,9 @@ h2{font-size:14px;margin:0 0 8px}#featurePlot{height:250px;margin:-4px -6px}
 </style>
 </head>
 <body>
-<!-- 工具栏、三维场景与四因素详情共用同一选叶状态。 -->
+<!-- 工具栏、三维场景与五因素详情共用同一选叶状态。 -->
 <header>
-<div><h1>玉米叶片 · 四因素姿态分类</h1><small>茎叶角 θ · 相对投影面积 P · 俯仰熵 H · 相对着生高度 h</small></div>
+<div><h1>玉米叶片 · 五因素姿态分类</h1><small>茎叶角 θ · 相对投影面积 P · 俯仰熵 H · 相对着生高度 h · 远端高差 Δz</small></div>
 <span class="spacer"></span><a id="overviewLink" hidden href="index.html">返回14株总览</a>
 </header>
 <div class="toolbar">
@@ -63,7 +63,7 @@ h2{font-size:14px;margin:0 0 8px}#featurePlot{height:250px;margin:-4px -6px}
 <aside>
 <p id="status" class="status" role="status">正在加载…</p>
 <div class="card"><div class="legend"><span><i class="dot" style="background:#1f77b4"></i>紧缩</span><span><i class="dot" style="background:#1b9e77"></i>舒展</span><span><i class="dot" style="background:#d95f02"></i>下垂</span></div><div id="summary"></div><p class="note" id="modelNote"></p></div>
-<div class="card"><h2>四因素详情</h2><div id="selectionInfo" class="note">点击曲面、叶片卡片或下方散点选叶。</div></div>
+<div class="card"><h2>五因素详情</h2><div id="selectionInfo" class="note">点击曲面、叶片卡片或下方散点选叶。</div></div>
 <div class="card"><h2>茎叶角与着生高度</h2><div id="featurePlot"></div><p class="note">颜色对应类别；点选可联动三维视图。高度已参与聚类，此图用于查看分布。</p></div>
 <h2>叶片 · 按着生高度从上到下</h2><div id="leafList"></div>
 </aside>
@@ -232,22 +232,24 @@ function renderSidebar(visible){
  leaves.forEach(l=>{if(record(l).cluster_kmeans in counts)counts[record(l).cluster_kmeans]++;});
  el('summary').innerHTML='<div class="counts">'+Object.entries(counts).map(([k,n])=>'<span style="color:'+ci(k).color+'">'+ci(k).zh+' '+n+'</span>').join('')+'</div>';
  const weight=meta.primary_model?.height_weight;
- el('modelNote').textContent='紧缩候选限于顶部小型叶；各株可缺少某些类别。默认显示观测支撑面；勾选“显示插值/外推面”查看完整估计域。高度权重 '+fmt(weight,2)+'。';
+ const farWeight=meta.primary_model?.far_height_diff_weight;
+ el('modelNote').textContent='紧缩候选限于顶部小型叶；各株可缺少某些类别。默认显示观测支撑面；勾选“显示插值/外推面”查看完整估计域。高度权重 '+fmt(weight,2)+(farWeight==null?'':'，远端高差权重 '+fmt(farWeight,2))+'。';
  el('status').textContent='植株 '+state.plant+' · 显示 '+visible.length+' / '+leaves.length+' 片叶 · 拖动旋转，滚轮缩放';
  const selected=leaves.find(l=>l.leaf_id===state.leaf), r=selected?record(selected):null;
  el('selectionInfo').innerHTML=r?'<div class="kv">'+[
   ['叶片 / 类别','L'+selected.leaf_id+' · '+ci(r.cluster_kmeans).zh],
   ['茎叶角 θ',fmt(r.stem_leaf_angle_deg,1)+'°'],['相对投影面积 P',fmt(r.rel_projected_area,3)],
   ['俯仰熵 H（12分箱）',fmt(r.pitch_entropy_b12,3)],['相对着生高度 h',fmt(r.relative_height,3)],
+  ['远端高差 Δz',fmt(r.far_end_height_diff,3)],
   ['水平投影面积',fmt(r.projected_area_element,4)],['观测面积占比',fmt(r.coverage_observed == null ? null : 100*r.coverage_observed,1)+'%'],
   ['外推面积占比',fmt(r.coverage_extrapolated == null ? null : 100*r.coverage_extrapolated,1)+'%'],['原始簇距离比 r',fmt(r.distance_ratio_r,3)],
   ['不含高度的原始聚类',ci(r.cluster_without_height).zh],['重建支撑复查',selected.support_review_required?'仍需人工核验':'未触发支撑告警'],['远离点云面积占比',fmt(selected.support_far_area_fraction==null?null:100*selected.support_far_area_fraction,1)+'%']
- ].map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>':'点击曲面、叶片卡片或散点查看四因素；默认保留整株，勾选“仅看选中叶”可隔离检查。';
+ ].map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>':'点击曲面、叶片卡片或散点查看五因素；默认保留整株，勾选“仅看选中叶”可隔离检查。';
  const sorted=[...leaves].filter(passes).sort((a,b)=>(record(b).relative_height??-1)-(record(a).relative_height??-1));
  el('leafList').innerHTML=sorted.length?sorted.map(l=>{
   const r=record(l), c=ci(r.cluster_kmeans), selected=l.leaf_id===state.leaf;
   const tags=(r.ambiguous_r080?'<span class="tag">边界</span>':'')+(r.changed_by_height?'<span class="tag">对照不同</span>':'')+(l.support_review_required?'<span class="tag">支撑待查</span>':'')+(r.semantic_reassigned?'<span class="tag">语义调整</span>':'');
-  return '<button class="leaf-btn'+(selected?' selected':'')+'" style="border-left-color:'+c.color+'" data-leaf="'+l.leaf_id+'"><span class="leaf-head"><b>L'+l.leaf_id+'</b><span class="pill" style="background:'+c.color+'">'+c.zh+'</span>'+tags+'</span><span class="features"><span>θ '+fmt(r.stem_leaf_angle_deg,1)+'°</span><span>相对投影面积 '+fmt(r.rel_projected_area,3)+'</span><span>俯仰熵 '+fmt(r.pitch_entropy_b12,3)+'</span><span>相对高度 '+fmt(r.relative_height,3)+'</span></span><span class="height-track"><i style="width:'+Math.max(0,Math.min(100,100*(r.relative_height||0)))+'%"></i></span></button>';
+  return '<button class="leaf-btn'+(selected?' selected':'')+'" style="border-left-color:'+c.color+'" data-leaf="'+l.leaf_id+'"><span class="leaf-head"><b>L'+l.leaf_id+'</b><span class="pill" style="background:'+c.color+'">'+c.zh+'</span>'+tags+'</span><span class="features"><span>θ '+fmt(r.stem_leaf_angle_deg,1)+'°</span><span>相对投影面积 '+fmt(r.rel_projected_area,3)+'</span><span>俯仰熵 '+fmt(r.pitch_entropy_b12,3)+'</span><span>相对高度 '+fmt(r.relative_height,3)+'</span><span>远端高差 Δz '+fmt(r.far_end_height_diff,3)+'</span></span><span class="height-track"><i style="width:'+Math.max(0,Math.min(100,100*(r.relative_height||0)))+'%"></i></span></button>';
  }).join(''):'<div class="empty">没有符合筛选条件的叶片。</div>';
  el('leafList').querySelectorAll('[data-leaf]').forEach(button=>button.onclick=()=>{const id=Number(button.dataset.leaf);selectLeaf(state.leaf===id?null:id);});
 }
@@ -264,7 +266,7 @@ async function renderFeatures(){
    type:'scatter',mode:'markers',name:c.zh,
    x:group.map(l=>record(l).stem_leaf_angle_deg),y:group.map(l=>record(l).relative_height),
    customdata:group.map(l=>l.leaf_id),
-   text:group.map(l=>'L'+l.leaf_id+' · 相对投影面积='+fmt(record(l).rel_projected_area,3)+' · H='+fmt(record(l).pitch_entropy_b12,3)),
+   text:group.map(l=>'L'+l.leaf_id+' · 相对投影面积='+fmt(record(l).rel_projected_area,3)+' · H='+fmt(record(l).pitch_entropy_b12,3)+' · Δz='+fmt(record(l).far_end_height_diff,3)),
    hovertemplate:'%{text}<br>θ=%{x:.1f}° · h=%{y:.3f}<extra>%{fullData.name}</extra>',
    marker:{color:c.color,size:9,line:{color:'#fff',width:1}}
   }));

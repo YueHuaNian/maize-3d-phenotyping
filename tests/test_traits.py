@@ -18,6 +18,7 @@ from maize_leaf.traits import (
     compute_canopy_radial_envelope,
     direction_unit_vector,
     element_projected_area,
+    far_end_height_diff,
     rasterize_directional_exposure,
     stem_tangent_at_point,
 )
@@ -199,6 +200,19 @@ class StageDMathTraitsTests(unittest.TestCase):
         self.assertAlmostEqual(z_max - z_min, 1.0, places=6)
         for r in rows:
             self.assertAlmostEqual(r["radius_q95"], 0.3, delta=1e-4)
+
+    def test_far_end_height_diff_upward_and_drooping(self):
+        """检查离茎最远端高度差对上翘叶为正、下垂叶为负。"""
+        stem = np.column_stack([np.zeros(101), np.zeros(101), np.linspace(0.0, 1.0, 101)])
+        up_verts = np.array([[0.05, 0.0, 0.40], [0.25, 0.0, 0.55], [0.50, 0.0, 0.72]])
+        res_up = far_end_height_diff(up_verts, stem, base_z=0.40)
+        self.assertAlmostEqual(res_up["far_end_stem_dist"], 0.50, places=6)
+        self.assertAlmostEqual(res_up["far_end_height_diff"], 0.32, places=6)
+
+        droop_verts = np.array([[0.05, 0.0, 0.40], [0.30, 0.0, 0.48], [0.45, 0.0, 0.22]])
+        res_down = far_end_height_diff(droop_verts, stem, base_z=0.40)
+        self.assertAlmostEqual(res_down["far_end_stem_dist"], 0.45, places=6)
+        self.assertAlmostEqual(res_down["far_end_height_diff"], -0.18, places=6)
 
 
 if __name__ == "__main__":

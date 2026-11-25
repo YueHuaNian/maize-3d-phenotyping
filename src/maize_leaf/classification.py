@@ -1,10 +1,12 @@
-"""四因素叶姿聚类、语义规则与严格留一株稳定性验证。
+"""五因素叶姿聚类、语义规则与严格留一株稳定性验证。
 
-Weighted leaf pose clustering with three morphology features and relative insertion height.
+Weighted leaf pose clustering with morphology features, relative insertion height, and far-end height difference.
 
 Mathematical components (pure NumPy/SciPy, zero extra dependencies):
-  - Primary vector: [stem_leaf_angle_deg, rel_projected_area, pitch_entropy_b12, relative_height].
+  - Primary vector: [stem_leaf_angle_deg, rel_projected_area, pitch_entropy_b12,
+    relative_height, far_end_height_diff].
     relative_height is leaf-base height normalized by the observed stem extent.
+    far_end_height_diff is z_far - z_base for the leaf surface point farthest from the stem.
   - RobustScaler: x_tilde = (x - median(x)) / IQR(x), fitted strictly on training plants inside LOPO.
   - Classifier: K-means++ (Arthur & Vassilvitskii 2007; k=3, n_init=50, max_iter=500, seed=42).
   - Post-hoc semantic anchoring (never feeds back into clustering):
@@ -21,16 +23,24 @@ from scipy.spatial.distance import cdist
 CLASS_NAMES = ("convergent", "expanded", "drooping")
 CLASS_NAMES_ZH = ("紧缩", "舒展", "下垂")
 
-PRIMARY_FEATURES = ["stem_leaf_angle_deg", "rel_projected_area", "pitch_entropy_b12", "relative_height"]
-DEFAULT_HEIGHT_WEIGHT = 0.5  # 初始平方距离权重，尚未标定为生物学常数。
+PRIMARY_FEATURES = [
+    "stem_leaf_angle_deg",
+    "rel_projected_area",
+    "pitch_entropy_b12",
+    "relative_height",
+    "far_end_height_diff",
+]
+DEFAULT_HEIGHT_WEIGHT = 1.0  # 初始平方距离权重，尚未标定为生物学常数。
+DEFAULT_FAR_HEIGHT_DIFF_WEIGHT = 1.0  # 初始平方距离权重，尚未标定为生物学常数。
 DEFAULT_POSE_POLICY = {"compact_max_relative_area": 0.5, "apical_height_span": 0.15,
                        "endpoint_distance_ratio": 2 / 3}
 ABLATION_MODELS = {
     "M1_angle": ["stem_leaf_angle_deg"],
     "M2_angle_proj": ["stem_leaf_angle_deg", "rel_projected_area"],
     "M3_morphology": PRIMARY_FEATURES[:3],
-    "M4_no_entropy": ["stem_leaf_angle_deg", "rel_projected_area", "relative_height"],
-    "M5_primary": PRIMARY_FEATURES,
+    "M4_no_entropy": ["stem_leaf_angle_deg", "rel_projected_area", "relative_height", "far_end_height_diff"],
+    "M5_no_far_diff": PRIMARY_FEATURES[:4],
+    "M6_primary": PRIMARY_FEATURES,
 }
 
 

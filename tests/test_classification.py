@@ -73,12 +73,13 @@ class StageEClassificationTests(unittest.TestCase):
         self.assertLess(abs(s_clean.scale_[0] - s_out.scale_[0]), 0.3)
 
     def test_zero_height_weight_reproduces_three_feature_partition(self):
-        """检查高度权重为零时复现三形态特征的划分。"""
+        """检查高度和远端高差权重为零时复现三形态特征的划分。"""
         X, _, plants = self._make_well_separated_plants()
         h = np.linspace(0, 1, len(X))
+        far_dz = np.linspace(0.5, -0.3, len(X))
         baseline = lopo_validate(X, plants, PRIMARY_FEATURES[:3], n_perm=10)
-        augmented = lopo_validate(np.column_stack([X, h]), plants, PRIMARY_FEATURES,
-                                  feature_weights=[1, 1, 1, 0], n_perm=10)
+        augmented = lopo_validate(np.column_stack([X, h, far_dz]), plants, PRIMARY_FEATURES,
+                                  feature_weights=[1, 1, 1, 0, 0], n_perm=10)
         np.testing.assert_array_equal(baseline["full_labels"], augmented["full_labels"])
         np.testing.assert_array_equal(baseline["oof_labels"], augmented["oof_labels"])
 
@@ -99,7 +100,7 @@ class StageEClassificationTests(unittest.TestCase):
     def test_lopo_fits_scaler_without_held_out_plant(self):
         """检查留一株验证的缩放器仅在训练植株拟合。"""
         X, _, plants = self._make_well_separated_plants()
-        X = np.column_stack([X, np.linspace(0, 1, len(X))])
+        X = np.column_stack([X, np.linspace(0, 1, len(X)), np.linspace(0.4, -0.2, len(X))])
         fitted = []
         original = RobustScaler.fit
 
@@ -109,7 +110,7 @@ class StageEClassificationTests(unittest.TestCase):
             return original(scaler, data)
 
         with patch.object(RobustScaler, "fit", record_fit):
-            lopo_validate(X, plants, PRIMARY_FEATURES, feature_weights=[1, 1, 1, .5], n_perm=5)
+            lopo_validate(X, plants, PRIMARY_FEATURES, feature_weights=[1, 1, 1, 1, 1], n_perm=5)
         self.assertEqual(len(fitted), 11)
         for i, plant in enumerate(sorted(set(plants))):
             np.testing.assert_array_equal(fitted[i + 1], X[plants != plant])
@@ -117,17 +118,24 @@ class StageEClassificationTests(unittest.TestCase):
     def test_height_is_available_as_an_actual_clustering_feature(self):
         """检查相对高度作为实际聚类特征影响划分。"""
         heights = np.repeat([.1, .5, .9], 8)
-        X = np.column_stack([np.zeros((24, 3)), heights])
-        _, _, _, labels = fit_and_anchor(X, PRIMARY_FEATURES, feature_weights=[1, 1, 1, .5])
+        X = np.column_stack([np.zeros((24, 3)), heights, np.zeros(24)])
+        _, _, _, labels = fit_and_anchor(X, PRIMARY_FEATURES, feature_weights=[1, 1, 1, 1, 1])
+        self.assertAlmostEqual(adjusted_rand_index(np.repeat([0, 1, 2], 8), labels), 1.)
+
+    def test_far_height_diff_separates_upward_and_drooping_clusters(self):
+        """检查离茎最远端高度差可作为实际聚类特征区分上下。"""
+        far_dz = np.repeat([.5, .1, -.3], 8)
+        X = np.column_stack([np.zeros((24, 4)), far_dz])
+        _, _, _, labels = fit_and_anchor(X, PRIMARY_FEATURES, feature_weights=[1, 1, 1, 1, 1])
         self.assertAlmostEqual(adjusted_rand_index(np.repeat([0, 1, 2], 8), labels), 1.)
 
     def test_compact_requires_small_apical_candidate_without_per_plant_quotas(self):
         """检查紧缩限于顶部小叶，且各株可缺少该类别。"""
         model = KMeansModel()
-        model.centers_ = np.array([[0., 0., 0., 1.], [2., 1., 1., .5], [5., .4, 1., 0.]])
+        model.centers_ = np.array([[0., 0., 0., 1., 1.], [2., 1., 1., .5, .5], [5., .4, 1., 0., -1.]])
         Z = np.vstack([model.centers_[0], model.centers_[0], model.centers_[0], model.centers_[1]])
-        X = np.array([[20., .25, .4, .9], [20., .25, .4, .3],
-                      [20., .9, .4, .9], [40., 1., .7, .4]])
+        X = np.array([[20., .25, .4, .9, .5], [20., .25, .4, .3, .5],
+                      [20., .9, .4, .9, .5], [40., 1., .7, .4, .2]])
         labels, raw, _ = contextual_predict(model, Z, X, ['p1', 'p1', 'p2', 'p2'],
                                             PRIMARY_FEATURES, DEFAULT_POSE_POLICY)
         np.testing.assert_array_equal(labels, [0, 1, 1, 1])
