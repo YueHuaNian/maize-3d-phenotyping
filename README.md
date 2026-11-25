@@ -4,7 +4,7 @@
 
 ## 核心算法依据
 
-- **双重去噪**：单次欧氏近邻连通分量聚类滤波（Rusu & Cousins, 2011）+ 经全量 90 叶敏感性实验标定的分断片稳健 MAD-SOR（Rusu et al., 2008；$k=8,\ \tau = m + 3.5\,\sigma_{\mathrm{rob}}$）。
+- **双重去噪**：经全量 90 叶敏感性实验标定的单次稳健半径欧氏连通分量聚类滤波（Rusu & Cousins, 2011；$r = \max(5\,d_{\mathrm{sp}}, 0.02\,D_{\mathrm{rob}}),\ N_{\min}=\max(20, \lfloor 0.01\,N \rfloor)$）+ 分断片稳健 MAD-SOR（Rusu et al., 2008；$k=8,\ \tau = m + 3.5\,\sigma_{\mathrm{rob}}$）。
 - **骨架与中脉**：$L_1$-Medial 点云收缩骨架（Huang et al., 2013, *ACM TOG*）+ 测地排序 + 弧长重参数化主曲线（Hastie & Stuetzle, 1989）+ 有界 GCV P-spline（Eilers & Marx, 1996）+ 牛顿正交投影（Piegl & Tiller, 1997）。
 - **多候选几何**：比较联合优化、初始中脉、平滑中脉、主轴及直线参考坐标；先排除采样局部翻转，再综合点到叶面的 P95、中位距离及观测叶面到点云的面积加权距离选择。
 - **叶尖补全与叶面拟合**：分段幂函数、经验先验、BIC 截断检验、工程阻尼外推及分箱中位 GML-TPS；零宽叶尖同时收敛横向高度，避免末端张开。
@@ -40,7 +40,9 @@ python scripts/visualize.py --model outputs/maize_v2/plant_1-1-2/leaves/leaf_01_
 # 真实玉米完整叶留出遮挡验证（孔洞 / 叶缘 / 15%叶尖截断）
 python scripts/validate_holdout.py
 
-# 全量 90 叶 SOR 参数敏感性标定与诊断出图
+# 全量 90 叶欧氏聚类与 SOR 参数敏感性标定及诊断出图
+python scripts/validate_euclidean_clustering.py
+python scripts/plot_euclidean_clustering.py
 python scripts/validate_sor_sensitivity.py
 python scripts/plot_sor_sensitivity.py
 

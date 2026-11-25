@@ -1,0 +1,93 @@
+{
+  "created_date": "2026-11-25",
+  "base_git_head": "50c45b520277ead3ddd24868eed8ccf6e5449af7",
+  "geometry_py_sha256": "79029d8f5b678943b8fb2876ba275891bee24ea3152b6046f783d738b7ef4906",
+  "dataset": {
+    "plants": 14,
+    "leaves": 90,
+    "raw_points": 274683,
+    "dedup_points": 274683
+  },
+  "sensitivity_benchmark": {
+    "script": "scripts/validate_euclidean_clustering.py",
+    "plot_script": "scripts/plot_euclidean_clustering.py",
+    "seed": 2026,
+    "fixed_downstream_sor": {
+      "method": "med_mad",
+      "k": 8,
+      "n_sigma": 3.5
+    },
+    "configurations_evaluated": 1009,
+    "radius_configs": 56,
+    "minsize_configs": 18,
+    "selected_config": {
+      "r_family": "hybrid_robD",
+      "alpha_sp": 5.0,
+      "alpha_d": 0.02,
+      "radius_formula": "max(5.0 * median(d_1nn), 0.02 * ||Q_0.99(p) - Q_0.01(p)||_2)",
+      "min_size_formula": "max(20, int(0.01 * N))"
+    },
+    "level1_level2_comparison": {
+      "previous_current_impl": {
+        "radius_formula": "max(5.0 * spacing, 0.03 * ||ptp(p)||_2)",
+        "rad_inflation_med": 1.2587,
+        "rad_inflation_p95": 1.5579,
+        "l1_clean_fpr_pct": 0.0079,
+        "l1_clean_fpr_leaf_max_pct": 0.6144,
+        "l1_nat_offsurf_recall_pct": 10.2789,
+        "l2_mcc_plant_mean": 0.7545,
+        "l2_mcc_plant_std": 0.1274,
+        "l2_recall_close": 0.3112,
+        "l2_recall_med": 0.7100,
+        "l2_recall_far": 1.0,
+        "l2_det_tip_retention_pct": 99.6218
+      },
+      "selected_hybrid_robD_5_002": {
+        "radius_formula": "max(5.0 * spacing, 0.02 * ||Q_0.99(p) - Q_0.01(p)||_2)",
+        "rad_inflation_med": 1.0001,
+        "rad_inflation_p95": 1.0058,
+        "l1_clean_fpr_pct": 0.0330,
+        "l1_clean_fpr_leaf_max_pct": 0.6670,
+        "l1_nat_offsurf_recall_pct": 20.6588,
+        "l2_mcc_plant_mean": 0.8679,
+        "l2_mcc_plant_std": 0.0656,
+        "l2_recall_close": 0.7027,
+        "l2_recall_med": 1.0,
+        "l2_recall_far": 1.0,
+        "l2_det_tip_retention_pct": 98.9522
+      }
+    },
+    "level3a_perturbed_14plant_reconstruction": {
+      "no_cluster": {"passed": 14, "n": 14, "med_rmse": 0.004193, "med_support": 0.003863, "med_len_err_pct": 1.03, "med_wid_err_pct": 3.38, "med_area_err_pct": 5.80},
+      "main_only_cur": {"passed": 14, "n": 14, "med_rmse": 0.017148, "med_support": 0.003723, "med_len_err_pct": 9.93, "med_wid_err_pct": 5.92, "med_area_err_pct": 13.30},
+      "previous_current_impl": {"passed": 14, "n": 14, "med_rmse": 0.004326, "med_support": 0.004068, "med_len_err_pct": 1.75, "med_wid_err_pct": 2.10, "med_area_err_pct": 4.38},
+      "selected_hybrid_robD_5_002": {"passed": 14, "n": 14, "med_rmse": 0.003925, "med_support": 0.004064, "med_len_err_pct": 1.74, "med_wid_err_pct": 2.34, "med_area_err_pct": 2.76}
+    }
+  },
+  "full_90leaf_fit_audit": {
+    "baseline": "outputs/maize_v2 (pre-update 50c45b5)",
+    "candidate": "outputs/maize_ec_robD_002 (promoted to outputs/maize_v2)",
+    "leaves": 90,
+    "quality_passed": {"before": 90, "after": 90},
+    "orientation_reversed_leaves": {"before": 0, "after": 0},
+    "apex_closure_failed": {"before": 0, "after": 0},
+    "width_more_than_doubled_leaves": 0,
+    "surface_support_mean_median": {"before": 0.006106328666917378, "after": 0.005972972686021734},
+    "surface_support_improved_leaves": 29,
+    "raw": {
+      "before": {"median": 0.00245370037967631, "p95": 0.014930064954054786, "rmse": 0.00960930421888175},
+      "after": {"median": 0.0024523253389188942, "p95": 0.01516808186053898, "rmse": 0.009787427113094153},
+      "p95_improved_leaves": 17
+    },
+    "retained": {
+      "before": {"median": 0.0023322025676254946, "p95": 0.00959914814867198, "rmse": 0.004834772855932846},
+      "after": {"median": 0.00231619724644573, "p95": 0.009782559548606334, "rmse": 0.004879146147570268},
+      "p95_improved_leaves": 19
+    }
+  },
+  "unit_tests": {
+    "command": ".venv\\Scripts\\python.exe scripts\\run_tests.py",
+    "passed": 15,
+    "total": 15
+  }
+}

@@ -252,6 +252,23 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertGreater(float(cKDTree(cleaned).query(near_halo[0])[0]), 0.02)
         self.assertGreater(float(cKDTree(cleaned).query(far_outlier[0])[0]), 1.0)
 
+    def test_euclidean_clustering_robust_diagonal_resists_far_outlier_inflation(self):
+        # A far stray cluster must not inflate the bounding-box diagonal and pull a nearby
+        # detached mislabeled patch into the main blade component.
+        xyz, normals, _, _, _, _, _ = make_synthetic_maize_leaf()
+        rng = np.random.default_rng(2026)
+        # Compact 10-point detached mislabeled patch offset ~0.09 above mid-blade (> 5 * spacing)
+        patch = np.array([0.5, 0.0, 0.31]) + rng.normal(scale=0.004, size=(10, 3))
+        far_stray = np.array([4.5, 4.5, 4.5]) + rng.normal(scale=0.005, size=(4, 3))
+        extra_nrm = np.tile([0.0, 0.0, 1.0], (len(patch) + len(far_stray), 1))
+        pts = np.vstack([xyz, patch, far_stray])
+        nrm = np.vstack([normals, extra_nrm])
+        cleaned, _ = clean_leaf_points(pts, nrm)
+        tree = cKDTree(cleaned)
+        self.assertGreater(float(tree.query(patch)[0].min()), 0.05)
+        self.assertGreater(float(tree.query(far_stray)[0].min()), 1.0)
+        self.assertGreaterEqual(len(cleaned), int(0.98 * len(np.unique(xyz, axis=0))))
+
 
 if __name__ == "__main__":
     unittest.main()

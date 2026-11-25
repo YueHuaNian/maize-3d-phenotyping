@@ -21,7 +21,11 @@ def unit(v):
 
 
 def _euclidean_clusters(points, normals=None):
-    """Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels."""
+    """Exact deduplication + single-pass Euclidean cluster filtering returning fragment labels.
+
+    Uses the 1%-99% quantile bounding-box diagonal D_rob so far stray outliers cannot inflate
+    the connection radius r = max(5.0 * spacing, 0.02 * D_rob) and absorb nearby detached noise.
+    """
     _, uniq_idx = np.unique(points, axis=0, return_index=True)
     uniq_idx = np.sort(uniq_idx)
     p = points[uniq_idx]
@@ -30,8 +34,8 @@ def _euclidean_clusters(points, normals=None):
     tree = cKDTree(p)
     d2 = tree.query(p, k=min(2, len(p)))[0][:, -1]
     spacing = float(np.median(d2))
-    diam = float(np.linalg.norm(np.ptp(p, axis=0)))
-    radius = max(spacing * 5.0, diam * 0.03)
+    rob_diam = float(np.linalg.norm(np.quantile(p, 0.99, axis=0) - np.quantile(p, 0.01, axis=0)))
+    radius = max(spacing * 5.0, rob_diam * 0.02)
 
     g = tree.sparse_distance_matrix(tree, max_distance=radius, output_type="coo_matrix")
     _, lbl = connected_components(g)
