@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import numpy as np
+from scipy.interpolate import BSpline
 from scipy.spatial import cKDTree
 from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, extract_midrib, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
 from maize_leaf.morphology import DornbuschBlade, MaizeShapePrior, fit_dornbusch_blade
@@ -65,6 +66,34 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertAlmostEqual(fitted.length, 1.0, delta=0.06)
         self.assertAlmostEqual(fitted.w_max, 0.14, delta=0.01)
 
+    def test_length_cap_is_explicitly_flagged_without_forcing_short_tip(self):
+        s = np.linspace(.02, .98, 30)
+        fitted = fit_dornbusch_blade(s, np.full(len(s), .14), 1.)
+        self.assertGreater(fitted.length, 1.)
+        self.assertLessEqual(fitted.length, 1.45)
+        self.assertEqual(fitted.completion_status, "boundary_limited")
+
+    def test_extension_follows_final_surface_center_instead_of_reference_line(self):
+        s = np.linspace(0., 1.2, 60)
+        controls = np.column_stack([np.linspace(0., 1.2, 4), np.zeros(4), np.zeros(4)])
+        curve = BSpline(np.r_[np.zeros(4), np.full(4, 1.2)], controls, 3)
+        t, b, n = double_reflection_rmf(curve(s), curve(s, nu=1), n0=np.array([0., 0., 1.]))
+        tps = ThinPlateSplineGCV(np.array([[0, 0], [1, 0], [0, 1]]), np.zeros(3), np.array([.2, .1, 0.]), 1., 3.)
+        model = MaizeLeafModel(curve, MovingFrame(s, t, b, n),
+                               DornbuschBlade(1.2, .14, .35, .6, 1.8, 2.), tps, 1.)
+        np.testing.assert_allclose(model.evaluate([[1.2, 0.]])[0], [1.2, 0., .32], atol=1e-5)
+        near = model.evaluate([[1.-1e-6, 0.], [1.+1e-6, 0.]])
+        self.assertLess(np.linalg.norm(near[1]-near[0]), 3e-6)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "extended.npz"
+            model.save(path)
+            np.testing.assert_allclose(MaizeLeafModel.load(path).evaluate([[1.2, 0.]]),
+                                       model.evaluate([[1.2, 0.]]), atol=1e-12)
+            with np.load(path) as saved:
+                legacy = {key: saved[key] for key in saved.files if key != "surface_tip_extension"}
+            np.savez_compressed(path, **legacy)
+            self.assertFalse(MaizeLeafModel.load(path).surface_tip_extension)
+
     def test_rmf_orthonormality_and_twist_free(self):
         t = np.linspace(0.0, 2.0, 100)
         pts = np.column_stack([t, 0.2 * np.sin(t), 0.3 * np.cos(t)])
@@ -95,6 +124,18 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertGreater(tps.lam, 0.0)
         pred = tps.evaluate(xy)
         self.assertLess(float(np.sqrt(np.mean((pred - y) ** 2))), 0.01)
+
+    def test_shared_geometry_cache_preserves_candidate_surfaces(self):
+        xyz, normals, stem, _, hole, margin, _ = make_synthetic_maize_leaf()
+        visible = ~(hole | margin)
+        points, nrm = xyz[visible], normals[visible]
+        cache = {}
+        cfg = ModelConfig(max_tps_points=60, refine_tps_points=60, nu=30, nv=11)
+        for mode in ("joint", "initial", "smoothed", "axis", "linear"):
+            shared = fit_leaf(points, stem, normals=nrm, cfg=cfg,
+                              _geometry_mode=mode, _geometry_cache=cache)
+            independent = fit_leaf(points, stem, normals=nrm, cfg=cfg, _geometry_mode=mode)
+            np.testing.assert_allclose(shared["vertices"], independent["vertices"], atol=1e-12)
 
     def test_full_leaf_completion_and_serialization(self):
         xyz, normals, stem, _, hole, margin, tip = make_synthetic_maize_leaf()

@@ -151,15 +151,22 @@ def fit_dornbusch_blade(s_obs, w_obs, length_obs, prior=None, allow_tip_completi
         err = (blade.width(s_obs) - w_obs) / scale
         rss = max(float(np.sum(err ** 2)), 1e-12)
         bic = n * np.log(rss / n) + k_params * np.log(n)
+        # An optimum pressed against the imposed length cap does not identify a
+        # missing tip. Returning that cap as a measured length creates large,
+        # unstable extensions after even an interior margin is removed.
+        blade.completion_at_length_bound = bool(free_length and
+            (L_hi - blade.length) <= 1e-3 * (L_hi - length_obs))
         return blade, bic
 
     blade_intact, bic_intact = _fit(free_length=False)
+    blade_intact.completion_status = "disabled" if not allow_tip_completion else "not_supported"
     if not allow_tip_completion or tip_ratio <= 0.22:
         return blade_intact
 
     blade_ext, bic_ext = _fit(free_length=True)
     # Require positive BIC evidence (delta BIC > 4, Kass & Raftery 1995) before extending L.
     if bic_ext + 4.0 < bic_intact:
+        blade_ext.completion_status = "boundary_limited" if blade_ext.completion_at_length_bound else "estimated"
         return blade_ext
     return blade_intact
 

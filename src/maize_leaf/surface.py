@@ -156,13 +156,16 @@ class MaizeLeafModel:
     S(s, v) = C(s) + (v * w(s) / 2) * b(s) + q(s, v) * n(s),  s in [0, L], v in [-1, 1].
     """
 
-    def __init__(self, midrib, frame, blade, tps, length_obs, width_s=None, width_extra=None, apex_taper=True):
+    def __init__(self, midrib, frame, blade, tps, length_obs, width_s=None, width_extra=None,
+                 apex_taper=True, surface_tip_extension=True):
         self.midrib = midrib
         self.frame = frame
         self.blade = blade
         self.tps = tps
         self.length_obs = float(length_obs)
         self.apex_taper = bool(apex_taper)
+        self.surface_tip_extension = bool(surface_tip_extension)
+        self._tip_center = None
         self.width_s = np.asarray(width_s if width_s is not None else [0.0, length_obs], dtype=float)
         self.width_extra = np.asarray(width_extra if width_extra is not None else [0.0, 0.0], dtype=float)
         self._width_extra = PchipInterpolator(self.width_s, self.width_extra, extrapolate=False)
@@ -191,7 +194,46 @@ class MaizeLeafModel:
             w_end = max(float(self.blade.width(self.length_obs)), 1e-6)
             taper = np.where(s > self.length_obs, np.clip(w / w_end, 0.0, 1.0), 1.0)
             q = q * taper
-        return self.midrib(np.clip(s, 0.0, self.blade.length)) + (0.5 * v * w)[:, None] * b + q[:, None] * n
+        xyz = self.midrib(np.clip(s, 0.0, self.blade.length)) + (0.5 * v * w)[:, None] * b + q[:, None] * n
+        outside = s > self.length_obs
+        if self.surface_tip_extension and np.any(outside):
+            # Continue the actual surface center S(s,0), whose height may encode
+            # most longitudinal bending when the reference curve is linear.
+            # Fading its absolute TPS height to zero bends the tip toward the
+            # reference line instead of continuing the measured blade.
+            if self._tip_center is None:
+                self._build_tip_center()
+            end_v = self.tps.evaluate(np.column_stack([np.ones(outside.sum()), v[outside]]))
+            end_zero = float(self.tps.evaluate([[1.0, 0.0]])[0])
+            end_width = max(float(self.width(self.length_obs)), 1e-12)
+            relief_taper = np.clip(w[outside] / end_width, 0.0, 1.0)
+            # Include the same transverse apex factor at the observed seam.
+            end_factor = np.clip(end_width / max(.1 * self.blade.w_max, 1e-12), 0., 1.)
+            end_factor = end_factor ** 2 * (3 - 2 * end_factor) if self.apex_taper else 1.
+            xyz[outside] = (self._tip_center(s[outside])
+                            + (.5 * v[outside] * w[outside])[:, None] * b[outside]
+                            + (end_factor * (end_v - end_zero) * relief_taper)[:, None] * n[outside])
+        return xyz
+
+    def _build_tip_center(self):
+        ss = np.linspace(.75 * self.length_obs, self.length_obs, 64)
+        center = self.evaluate(np.column_stack([ss, np.zeros(len(ss))]))
+        velocity = np.gradient(center, ss, axis=0, edge_order=2)
+        speed = np.linalg.norm(velocity, axis=1)
+        tangent = velocity / np.maximum(speed[:, None], 1e-12)
+        theta = np.arcsin(np.clip(tangent[:, 2], -1., 1.))
+        arc = np.r_[0., np.cumsum(np.linalg.norm(np.diff(center, axis=0), axis=1))]
+        curvature = min(float(np.polyfit(arc, theta, 1)[0]), 0.)
+        azimuth = tangent[-1, :2]
+        azimuth = azimuth / max(float(np.linalg.norm(azimuth)), 1e-12)
+        ext_s = np.linspace(self.length_obs, self.blade.length, 129)
+        delta = .5 * (ext_s[1:] + ext_s[:-1]) - self.length_obs
+        pitch = np.maximum(min(theta[-1], -.48 * np.pi),
+            theta[-1] + curvature * speed[-1] * delta * np.exp(-.5 * delta / self.length_obs))
+        direction = np.column_stack([np.cos(pitch)[:, None] * azimuth, np.sin(pitch)])
+        steps = np.diff(ext_s) * speed[-1]
+        xyz = center[-1] + np.vstack([np.zeros(3), np.cumsum(steps[:, None] * direction, axis=0)])
+        self._tip_center = PchipInterpolator(ext_s, xyz, axis=0)
 
     def save(self, path):
         np.savez_compressed(
@@ -213,6 +255,7 @@ class MaizeLeafModel:
             width_s=self.width_s,
             width_extra=self.width_extra,
             apex_taper=self.apex_taper,
+            surface_tip_extension=self.surface_tip_extension,
         )
 
     @classmethod
@@ -225,7 +268,8 @@ class MaizeLeafModel:
         return cls(midrib, frame, blade, tps, float(d["length_obs"]),
                    d["width_s"] if "width_s" in d else None,
                    d["width_extra"] if "width_extra" in d else None,
-                   bool(d["apex_taper"]) if "apex_taper" in d else False)
+                   bool(d["apex_taper"]) if "apex_taper" in d else False,
+                   bool(d["surface_tip_extension"]) if "surface_tip_extension" in d else False)
 
 
 def _aggregate_tps_bins(u, v, h, max_points, rng):
@@ -247,19 +291,24 @@ def _aggregate_tps_bins(u, v, h, max_points, rng):
 
 
 def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
-             _stable_geometry=False, _geometry_mode=None):
+             _stable_geometry=False, _geometry_mode=None, _geometry_cache=None):
     """Fit and audit multiple geometric charts, select a non-reversed scan-fitting surface."""
     cfg = cfg or ModelConfig()
     prior = prior or MaizeShapePrior()
+    # This cache is local to one observed point set. It never crosses a leaf or
+    # a holdout split; TPS density does not change its deterministic geometry.
+    cache = {} if _geometry_cache is None else _geometry_cache
+    if "clean" not in cache:
+        cache["clean"] = clean_leaf_points(points, normals)
     if _geometry_mode is None and not _stable_geometry:
         from .quality import audit_model, surface_support_diagnostics
         # Compare regular surfaces on identical retained scan points. Retrying
         # only a single heavily smoothed curve can fix folds while harming fit.
-        retained, _ = clean_leaf_points(points, normals)
+        retained, _ = cache["clean"]
         candidates = []
         for mode in ("joint", "initial", "smoothed", "axis", "linear"):
             candidate = fit_leaf(points, stem, normals=normals, prior=prior, cfg=cfg,
-                                 leaf_id=leaf_id, _geometry_mode=mode)
+                                 leaf_id=leaf_id, _geometry_mode=mode, _geometry_cache=cache)
             sv, _ = leaf_mesh_grid(candidate["blade"].length, 220, 61)
             distances = cKDTree(candidate["model"].evaluate(sv)).query(retained)[0]
             median, p95 = np.quantile(distances, [0.5, 0.95])
@@ -271,10 +320,20 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
         valid = [r for r in candidates if r["traits"]["orientation_reversed_fraction"] == 0.0]
         if not valid:
             raise ValueError(f"Leaf {leaf_id}: no candidate passed the local orientation check")
-        best = min(valid, key=lambda r: (
+        ordered = sorted(valid, key=lambda r: (
             r["traits"]["scan_distance_p95"] + 0.5 * r["traits"]["scan_distance_median"]
             + r["traits"]["surface_support_mean"],
         ))
+        best = ordered[0]
+        rejected = []
+        for candidate in ordered:
+            candidate["quality"] = audit_model(candidate["model"], retained)
+            if candidate["quality"]["passed"]:
+                best = candidate
+                break
+            rejected.append({"geometry_method": candidate["traits"]["geometry_method"],
+                             "quality": candidate["quality"]})
+        best["traits"]["candidate_quality_rejections"] = rejected
         best["traits"]["geometry_candidates"] = [
             {k: r["traits"][k] for k in ("geometry_method", "orientation_reversed_fraction",
                                          "scan_distance_median", "scan_distance_p95",
@@ -282,20 +341,26 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
             for r in candidates
         ]
         spacing = float(np.median(cKDTree(retained).query(retained, k=2)[0][:, 1]))
-        if (best["traits"]["scan_distance_p95"] > 3.0 * spacing
+        if ((best["traits"]["scan_distance_p95"] > 3.0 * spacing or not best["quality"]["passed"])
                 and cfg.max_tps_points < cfg.refine_tps_points):
-            dense = fit_leaf(points, stem, normals=normals, prior=prior,
-                             cfg=replace(cfg, max_tps_points=cfg.refine_tps_points), leaf_id=leaf_id)
-            accepted = (dense["traits"]["scan_distance_p95"] <= best["traits"]["scan_distance_p95"]
-                        and dense["traits"]["scan_distance_median"] <= best["traits"]["scan_distance_median"]
-                        and dense["traits"]["surface_support_mean"] <= best["traits"]["surface_support_mean"])
             refinement = {"initial_limit": cfg.max_tps_points, "refined_limit": cfg.refine_tps_points,
-                          "accepted": bool(accepted), "initial_p95": best["traits"]["scan_distance_p95"],
-                          "refined_p95": dense["traits"]["scan_distance_p95"]}
-            if accepted:
-                best = dense
+                          "accepted": False, "initial_p95": best["traits"]["scan_distance_p95"]}
+            try:
+                dense = fit_leaf(points, stem, normals=normals, prior=prior,
+                                 cfg=replace(cfg, max_tps_points=cfg.refine_tps_points), leaf_id=leaf_id,
+                                 _geometry_cache=cache)
+                accepted = (not best["quality"]["passed"] or (
+                    dense["traits"]["scan_distance_p95"] <= best["traits"]["scan_distance_p95"]
+                    and dense["traits"]["scan_distance_median"] <= best["traits"]["scan_distance_median"]
+                    and dense["traits"]["surface_support_mean"] <= best["traits"]["surface_support_mean"]))
+                refinement.update(accepted=bool(accepted), refined_p95=dense["traits"]["scan_distance_p95"])
+                if accepted:
+                    best = dense
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                # Refinement is optional; its failure cannot invalidate an
+                # already audited coarse surface. Never relax quality gates.
+                refinement["error"] = str(exc)
             best["traits"]["tps_refinement"] = refinement
-        best["quality"] = audit_model(best["model"], retained)
         best["traits"]["quality_passed"] = best["quality"]["passed"]
         if not best["quality"]["passed"]:
             raise ValueError(f"Leaf {leaf_id}: selected surface failed the quality checks: {best['quality']}")
@@ -306,12 +371,13 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
     rng = np.random.default_rng(cfg.seed)
 
     # 1. Dual-stage denoising (Euclidean clusters + SOR).
-    p, nrm = clean_leaf_points(points, normals)
+    p, nrm = cache["clean"]
 
     # 2. L1-medial skeleton + Principal Curve midrib & normal-aligned RMF initialization.
-    midrib_0, length_0, s_proj_0, spacing, midrib_lam = extract_midrib(
-        p, stem, seed=cfg.seed, stabilize=_stable_geometry
-    )
+    geometry_key = ("axis" if _stable_geometry else "initial", cfg.seed)
+    if geometry_key not in cache:
+        cache[geometry_key] = extract_midrib(p, stem, seed=cfg.seed, stabilize=_stable_geometry)
+    midrib_0, length_0, s_proj_0, spacing, midrib_lam = cache[geometry_key]
     if mode == "linear":
         # Monotone axial chart: longitudinal curvature is carried by TPS height.
         # Its constant reference tangent prevents a strip from turning inside out.
@@ -326,7 +392,13 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
         midrib_0 = BSpline(np.r_[np.zeros(4), np.full(4, length_0)], controls, 3)
         s_proj_0 = project_points_to_curve(p, midrib_0, length_0)
         midrib_lam = 0.0
-    frame_0 = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
+    frame_key = ("frame", geometry_key)
+    if mode == "linear":
+        frame_0 = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
+    else:
+        if frame_key not in cache:
+            cache[frame_key] = build_normal_aligned_frame(midrib_0, length_0, p, s_proj_0, normals=nrm)
+        frame_0 = cache[frame_key]
 
     if mode == "smoothed":
         samples = np.linspace(0.0, length_0, 80)
@@ -342,9 +414,9 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
         # caused a strip reversal. Keep the regularized geometry in this retry.
         midrib_obs, frame_obs, length_obs, s_proj = midrib_0, frame_0, length_0, s_proj_0
     else:
-        midrib_obs, frame_obs, length_obs, s_proj = joint_optimize_geometry(
-            p, nrm, midrib_0, frame_0, length_0, s_proj_0, prior=prior
-        )
+        if "joint" not in cache:
+            cache["joint"] = joint_optimize_geometry(p, nrm, midrib_0, frame_0, length_0, s_proj_0, prior=prior)
+        midrib_obs, frame_obs, length_obs, s_proj = cache["joint"]
 
     # 4. Express points in refined local physical coordinates (s, lateral r, normal h).
     _, b_p, n_p = frame_obs.evaluate(s_proj)
@@ -445,6 +517,7 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
         tps_gcv_lambda=float(tps.lam),
         tps_edf=float(tps.edf),
         tps_training_points=len(tps.xy),
+        tip_completion_status=getattr(blade, "completion_status", "legacy"),
         support_radius=float(support_radius),
         geometry_method=mode,
         orientation_reversed_fraction=orientation["reversed_fraction"],

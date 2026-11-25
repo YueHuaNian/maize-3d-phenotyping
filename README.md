@@ -12,6 +12,7 @@
 
 详细公式见 [docs/method.md](docs/method.md)。
 14 株、90 片叶的逐叶输入哈希、参数及复查指标见 [验证记录](docs/validation/leaf_quality_2026-11-24.json)。
+全量 450 个遮挡案例的[逐叶误差](docs/validation/holdout_per_leaf_2026-11-25.csv)、[配对比较](docs/validation/holdout_paired_2026-11-25.csv)及[方法与结果](docs/method.md#18-逐叶遮挡留出验证2026-11-25)已记录；缺边和截尖仍有较多误差告警，扫描内检查通过不等于缺失区域已准确恢复。
 
 ## 快速运行
 
@@ -37,8 +38,12 @@ python scripts/visualize.py --plant 1-1-2 --leaf 1
 python scripts/visualize.py --plant 1-1-2 --leaf 1 --backend mpl --save leaf_01.png
 python scripts/visualize.py --model outputs/maize_v2/plant_1-1-2/leaves/leaf_01_model.npz
 
-# 真实玉米完整叶留出遮挡验证（孔洞 / 叶缘 / 15%叶尖截断）
-python scripts/validate_holdout.py
+# 全量 90 叶留出遮挡验证（孔洞 / 叶缘 / 末端参数跨度 10%、20%、30%）
+python scripts/validate_holdout.py --output outputs/holdout_run --workers 6
+python scripts/plot_holdout.py --root outputs/holdout_run
+# 对照修复前后的相同遮挡划分，生成逐叶配对误差表
+python scripts/validate_holdout.py --output outputs/holdout_repaired --split-root outputs/holdout_run --workers 6
+python scripts/compare_holdout.py --before outputs/holdout_run --after outputs/holdout_repaired
 
 # 全量 90 叶欧氏聚类与 SOR 参数敏感性标定及诊断出图
 python scripts/validate_euclidean_clustering.py

@@ -119,7 +119,7 @@ def run(input_root, output, plant_name=None, leaf_id=None, cfg=None, calibrate_p
         "completion_ratio", "base_inclination_deg", "fit_rmse", "tps_gcv_lambda", "tps_edf",
         "parameter_observed_length", "parameter_completed_length", "geometry_method",
         "orientation_reversed_fraction", "scan_distance_median", "scan_distance_p95", "quality_passed",
-        "surface_support_mean", "tps_training_points",
+        "surface_support_mean", "tps_training_points", "tip_completion_status",
     ]
     with (out / "traits.csv").open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)

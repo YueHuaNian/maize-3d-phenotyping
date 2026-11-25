@@ -1,0 +1,880 @@
+{
+  "date": "2026-11-25",
+  "model_base_commit": "e74bbd84915f51304ff9c7930c965f23f11f5a48",
+  "scope": "14 plants, 90 leaves, five frozen-coordinate occlusions per leaf; development benchmark",
+  "distance_units": "input coordinate units; no verified conversion to millimetres",
+  "reference": "no-tip-completion full-input model; length/area changes are model consistency, not manual ground truth",
+  "versions": {
+    "python": "3.15.2",
+    "numpy": "2.5.5",
+    "scipy": "1.18.1"
+  },
+  "manifest": {
+    "source_sha256": {
+      "src/maize_leaf/__init__.py": "4c0a5d804006bf76b34f01946caf35a6790946b97cfaebcaf66a45754edc4d43",
+      "src/maize_leaf/cli.py": "bade2a5bc0702634e0a68c2a79c52b8b213d78fba9c49a8345bb25b966f68bce",
+      "src/maize_leaf/geometry.py": "79029d8f5b678943b8fb2876ba275891bee24ea3152b6046f783d738b7ef4906",
+      "src/maize_leaf/io.py": "9bd2c966968fe235a0b65cf816ef0e18c6fced1d1c41d4709447d2cecf799432",
+      "src/maize_leaf/joint.py": "fd5a7ffd8620e525e1064d2cb0901aa7c9d2b2260a2f6adad3c157e07f783847",
+      "src/maize_leaf/morphology.py": "187d51ae9faeb709db642af3a0364113d601e564fa581b540277ce56283dd912",
+      "src/maize_leaf/pipeline.py": "ebf92280a7b8c302d05474e0ec6827e75673aa5a46525dee57d4b3db65c9a61e",
+      "src/maize_leaf/quality.py": "c8181aafed88024ff9f229769ac4afe1c3bf8c73b37d88d20c69356cbda36517",
+      "src/maize_leaf/surface.py": "8c668f15be816267db56baa256184896a459f4558e72b06945e81dda7d9c660f",
+      "src/maize_leaf/validation.py": "7ddf307e3d06f2ceb3e42757cbfc941555945aad682ffa9f38061d41cc86792d",
+      "src/maize_leaf/viz.py": "9c65944db6229104591ff9cfad2de7d249f247557462ae637ba8e0d0604b1bc5",
+      "scripts/validate_holdout.py": "2668860d890da718e965f6585f243df5f7e253fc05c7b4d6c96702c1c5ef91b7"
+    },
+    "inputs": [
+      {
+        "plant": "1-1-2",
+        "files": [
+          {
+            "name": "1-1-2.txt",
+            "sha256": "1cf7ccc53ad1bbb0b5f3d4a405f5f367f6aeffdeeea88c43ecd977360451e606"
+          },
+          {
+            "name": "1-1-2.csv",
+            "sha256": "30615072102a3320f0b2e9721cc52e7b6ae0faca28508e865605baa540c7dc22"
+          }
+        ]
+      },
+      {
+        "plant": "1-2-1",
+        "files": [
+          {
+            "name": "1-2-1.txt",
+            "sha256": "995bcf4c3b0708880f572cadfa645b1c8b06b4c5c709c6e4832bf5d38dc908aa"
+          },
+          {
+            "name": "1-2-1.csv",
+            "sha256": "5dd8c48a58ff4606a115b3ae034de1ebcb066f6058d7272121efb623c25d1015"
+          }
+        ]
+      },
+      {
+        "plant": "1-2-2",
+        "files": [
+          {
+            "name": "1-2-2.txt",
+            "sha256": "5d485a5dbf567d7c30716e7f0b8ebcfccd585e2a53b22333d8125eb9ecb5876d"
+          },
+          {
+            "name": "1-2-2.csv",
+            "sha256": "2edb5024705e8e5868c6fa204b6fe80c5f1e9231c823a6600d416334ddd07462"
+          }
+        ]
+      },
+      {
+        "plant": "1-3-1",
+        "files": [
+          {
+            "name": "1-3-1.txt",
+            "sha256": "2e03d50d0afb86f42705b529d24c3b543aabb3c1d0486e49cdff16298925f41d"
+          },
+          {
+            "name": "1-3-1.csv",
+            "sha256": "66497c32ebcf0ee0039441e471e6437c0cf04d8e794c952bed85536e309ccccc"
+          }
+        ]
+      },
+      {
+        "plant": "2-1-1",
+        "files": [
+          {
+            "name": "2-1-1.txt",
+            "sha256": "dcbcefb81363e1dfbf9dcaad7a46acd3f205e87addf7d5aae887893e6ae9046e"
+          },
+          {
+            "name": "2-1-1.csv",
+            "sha256": "9a72722ee499f624f4e729b99c32ea21aad8b49b6bf248f850135248b1b596de"
+          }
+        ]
+      },
+      {
+        "plant": "2-1-2",
+        "files": [
+          {
+            "name": "2-1-2.txt",
+            "sha256": "068d4e2cddb5d15459579db0337a3c243481829fb3367a40d2544db360c57253"
+          },
+          {
+            "name": "2-1-2.csv",
+            "sha256": "25d8f2bf5911665407517c6267fc0e4e9d7721ac2b12d24d1597036f62963aff"
+          }
+        ]
+      },
+      {
+        "plant": "2-2-1",
+        "files": [
+          {
+            "name": "2-2-1.txt",
+            "sha256": "7e617f92327764ef62c6ac28a76a4e0909035217d5ae3d0912cb4f78a7568fc6"
+          },
+          {
+            "name": "2-2-1.csv",
+            "sha256": "021fbd2f818d8397844cd801789f2940d501d0c2ba60e79a58289c523f38333d"
+          }
+        ]
+      },
+      {
+        "plant": "2-2-2",
+        "files": [
+          {
+            "name": "2-2-2.txt",
+            "sha256": "23aac9a2cbe9c396bf7b0e6d172f29af1459c3d10a26405357af91cc9b2457de"
+          },
+          {
+            "name": "2-2-2.csv",
+            "sha256": "893a20e35d918129a02564ffd02028f8aa3e1ce224dfe2b1e24def48ebcb2639"
+          }
+        ]
+      },
+      {
+        "plant": "2-3-1",
+        "files": [
+          {
+            "name": "2-3-1.txt",
+            "sha256": "760306ba94ccd9699365749e41a062bcd1cdf788b3fd9f8008cc5d41ca9a9c2a"
+          },
+          {
+            "name": "2-3-1.csv",
+            "sha256": "c20a13117524ebd13ec5b1c6a931a8479ab48944904ec1e8720c3c179355f8bf"
+          }
+        ]
+      },
+      {
+        "plant": "2-3-2",
+        "files": [
+          {
+            "name": "2-3-2.txt",
+            "sha256": "ae74599be69dcfd5b550f9e22da9c680a1c4d6628f87dc6713ef46a3c0a7a099"
+          },
+          {
+            "name": "2-3-2.csv",
+            "sha256": "95ec3aeca64a491dd210184f1ce039e70beecf63d3bb773642f5fa98b4111fa8"
+          }
+        ]
+      },
+      {
+        "plant": "2-4-1",
+        "files": [
+          {
+            "name": "2-4-1.txt",
+            "sha256": "6a90cb96df89e870a01bf08fa6948a535bc3d425962356fe7e169aa46488d8a8"
+          },
+          {
+            "name": "2-4-1.csv",
+            "sha256": "24b3fb6287b96f2a9b85faec1a3445b1d565047e9cf79bf6aeb7bca4e213048f"
+          }
+        ]
+      },
+      {
+        "plant": "2-4-2",
+        "files": [
+          {
+            "name": "2-4-2.txt",
+            "sha256": "9ffe914c181342ae0e9b0a5fe689c78d267f16dee8de729d8f37b40b56592d5f"
+          },
+          {
+            "name": "2-4-2.csv",
+            "sha256": "8bfcff18a3e388ee53a24edf49fc149ff8f4dcf864a97ec7e3bbf7f0189588f8"
+          }
+        ]
+      },
+      {
+        "plant": "2-5-1",
+        "files": [
+          {
+            "name": "2-5-1.txt",
+            "sha256": "78ea9b9d6cd00bc7dd1306a2c0cb3eaf203f10d88cd6d08b15968fdc7b1fda48"
+          },
+          {
+            "name": "2-5-1.csv",
+            "sha256": "595643ee0da9a37a38dd2c5eab932d83043b2ce8d8d13166ce3ff11a5d1ac274"
+          }
+        ]
+      },
+      {
+        "plant": "2-5-2",
+        "files": [
+          {
+            "name": "2-5-2.txt",
+            "sha256": "2fe0d388844808a48535b7440852a553da0f9d8d31665ae5ce60cf402c2f94e7"
+          },
+          {
+            "name": "2-5-2.csv",
+            "sha256": "af98f3a446eda3d047fe5a883c0d58c2eacc8ee9e744e4602324be47c115babe"
+          }
+        ]
+      }
+    ],
+    "config": {
+      "nu": 90,
+      "nv": 25,
+      "max_tps_points": 350,
+      "refine_tps_points": 700,
+      "allow_tip_completion": true,
+      "seed": 2026
+    },
+    "prior": {
+      "xm_mean": 0.36,
+      "xm_std": 0.1,
+      "klig_mean": 0.62,
+      "klig_std": 0.16,
+      "c1_mean": 1.85,
+      "c1_std": 0.45,
+      "c2_mean": 2.0,
+      "c2_std": 0.55
+    },
+    "scenarios": [
+      "hole",
+      "margin",
+      "tip_10pct",
+      "tip_20pct",
+      "tip_30pct"
+    ],
+    "max_leaves": null,
+    "minimum_points": {
+      "held": 20,
+      "observed": 200
+    },
+    "alerts": {
+      "held_p95": "max(6*spacing, .15*reference_max_width)",
+      "length_change_pct": 15,
+      "area_change_pct": 25
+    },
+    "frozen_split_fingerprint": "d7b50cfcc81e26e8e6f3b34675ac95e75634a17caee14cc849fa5f58b331b696",
+    "fingerprint": "47bf5dffe30d4b8c8ee24b4c4f43c034b328a3602e688ac0ad4f9cd15b44e4ee"
+  },
+  "comparison": {
+    "paired_cases": 450,
+    "identical_frozen_split_cases": 450,
+    "split_disjointness_checked_cases": 450,
+    "plants": 14,
+    "leaves": 90,
+    "summary": {
+      "before": {
+        "hole": {
+          "total": 90,
+          "fitted": 85,
+          "ok": 61,
+          "alerts": 24,
+          "failed": 0,
+          "skipped": 5,
+          "leaf_median_held_median": 0.002801003120434167,
+          "plant_mean_of_leaf_medians_held_median": 0.002768430030682576,
+          "leaf_median_held_p95": 0.010511250335731925,
+          "plant_mean_of_leaf_medians_held_p95": 0.010629823607722568,
+          "leaf_median_held_rmse": 0.004940316421763643,
+          "plant_mean_of_leaf_medians_held_rmse": 0.0053202382476029006,
+          "leaf_median_held_p95_over_width": 0.07695352482652669,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.08410795162186697,
+          "leaf_median_held_p95_over_spacing": 2.8837361630623195,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 2.910670292477929,
+          "leaf_median_length_change_pct": 3.07423690247753,
+          "plant_mean_of_leaf_medians_length_change_pct": 5.043821200254973,
+          "leaf_median_area_change_pct": 5.652581293092436,
+          "plant_mean_of_leaf_medians_area_change_pct": 6.910901415478079
+        },
+        "margin": {
+          "total": 90,
+          "fitted": 84,
+          "ok": 27,
+          "alerts": 57,
+          "failed": 0,
+          "skipped": 6,
+          "leaf_median_held_median": 0.007297614359680286,
+          "plant_mean_of_leaf_medians_held_median": 0.007831075791472148,
+          "leaf_median_held_p95": 0.0249855774407585,
+          "plant_mean_of_leaf_medians_held_p95": 0.025076331905700213,
+          "leaf_median_held_rmse": 0.012527616100028598,
+          "plant_mean_of_leaf_medians_held_rmse": 0.012561535416315345,
+          "leaf_median_held_p95_over_width": 0.19365250147798826,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.1979655855292515,
+          "leaf_median_held_p95_over_spacing": 7.29833323266314,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 7.035212059451061,
+          "leaf_median_length_change_pct": 1.3056398416134452,
+          "plant_mean_of_leaf_medians_length_change_pct": 3.6738925261343263,
+          "leaf_median_area_change_pct": 7.4452164923199025,
+          "plant_mean_of_leaf_medians_area_change_pct": 7.2908175835150155
+        },
+        "tip_10pct": {
+          "total": 90,
+          "fitted": 81,
+          "ok": 4,
+          "alerts": 77,
+          "failed": 0,
+          "skipped": 9,
+          "leaf_median_held_median": 0.025207902317104406,
+          "plant_mean_of_leaf_medians_held_median": 0.027472990549724872,
+          "leaf_median_held_p95": 0.057718363767160726,
+          "plant_mean_of_leaf_medians_held_p95": 0.06290240509322073,
+          "leaf_median_held_rmse": 0.033595874107797886,
+          "plant_mean_of_leaf_medians_held_rmse": 0.035898983026376376,
+          "leaf_median_held_p95_over_width": 0.40971745976534846,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.46993267982074655,
+          "leaf_median_held_p95_over_spacing": 16.470139096364957,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 18.96347591492617,
+          "leaf_median_length_change_pct": 12.540734500496361,
+          "plant_mean_of_leaf_medians_length_change_pct": 15.899235669951311,
+          "leaf_median_area_change_pct": 10.6019977719984,
+          "plant_mean_of_leaf_medians_area_change_pct": 9.823574272551806
+        },
+        "tip_20pct": {
+          "total": 90,
+          "fitted": 87,
+          "ok": 3,
+          "alerts": 84,
+          "failed": 0,
+          "skipped": 3,
+          "leaf_median_held_median": 0.03023009584284679,
+          "plant_mean_of_leaf_medians_held_median": 0.03365587258712648,
+          "leaf_median_held_p95": 0.0878484645797159,
+          "plant_mean_of_leaf_medians_held_p95": 0.08293996040812579,
+          "leaf_median_held_rmse": 0.04711894086291351,
+          "plant_mean_of_leaf_medians_held_rmse": 0.04790130996330327,
+          "leaf_median_held_p95_over_width": 0.6025573153437594,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.650560871396079,
+          "leaf_median_held_p95_over_spacing": 25.14033932274395,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 24.304736845154505,
+          "leaf_median_length_change_pct": 17.1232273970878,
+          "plant_mean_of_leaf_medians_length_change_pct": 16.539684341533693,
+          "leaf_median_area_change_pct": 10.951459520456101,
+          "plant_mean_of_leaf_medians_area_change_pct": 12.753225710264342
+        },
+        "tip_30pct": {
+          "total": 90,
+          "fitted": 87,
+          "ok": 2,
+          "alerts": 85,
+          "failed": 1,
+          "skipped": 2,
+          "leaf_median_held_median": 0.045399720506161846,
+          "plant_mean_of_leaf_medians_held_median": 0.043792955534633915,
+          "leaf_median_held_p95": 0.110786101260984,
+          "plant_mean_of_leaf_medians_held_p95": 0.11114790250005192,
+          "leaf_median_held_rmse": 0.058857589757453255,
+          "plant_mean_of_leaf_medians_held_rmse": 0.06149151144484113,
+          "leaf_median_held_p95_over_width": 0.9065027899059775,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.9189531867485545,
+          "leaf_median_held_p95_over_spacing": 32.77880184956992,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 31.648537696755277,
+          "leaf_median_length_change_pct": 9.12942802533777,
+          "plant_mean_of_leaf_medians_length_change_pct": 11.05831158299128,
+          "leaf_median_area_change_pct": 18.91410884437868,
+          "plant_mean_of_leaf_medians_area_change_pct": 20.535018233071156
+        }
+      },
+      "after": {
+        "hole": {
+          "total": 90,
+          "fitted": 85,
+          "ok": 61,
+          "alerts": 24,
+          "failed": 0,
+          "skipped": 5,
+          "leaf_median_held_median": 0.002801003120434167,
+          "plant_mean_of_leaf_medians_held_median": 0.002768430030682576,
+          "leaf_median_held_p95": 0.010511250335731925,
+          "plant_mean_of_leaf_medians_held_p95": 0.010629823607722568,
+          "leaf_median_held_rmse": 0.004940316421763643,
+          "plant_mean_of_leaf_medians_held_rmse": 0.0053202382476029006,
+          "leaf_median_held_p95_over_width": 0.07695352482652669,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.08410795162186697,
+          "leaf_median_held_p95_over_spacing": 2.8837361630623195,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 2.910670292477929,
+          "leaf_median_length_change_pct": 3.07423690247753,
+          "plant_mean_of_leaf_medians_length_change_pct": 5.071335777788285,
+          "leaf_median_area_change_pct": 5.161614870014453,
+          "plant_mean_of_leaf_medians_area_change_pct": 6.926468351372811
+        },
+        "margin": {
+          "total": 90,
+          "fitted": 84,
+          "ok": 27,
+          "alerts": 57,
+          "failed": 0,
+          "skipped": 6,
+          "leaf_median_held_median": 0.007297614359680286,
+          "plant_mean_of_leaf_medians_held_median": 0.007835943899682844,
+          "leaf_median_held_p95": 0.0249855774407585,
+          "plant_mean_of_leaf_medians_held_p95": 0.02513269703755347,
+          "leaf_median_held_rmse": 0.012527616100028598,
+          "plant_mean_of_leaf_medians_held_rmse": 0.012567104062331186,
+          "leaf_median_held_p95_over_width": 0.19434985325864493,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.198597022727822,
+          "leaf_median_held_p95_over_spacing": 7.29833323266314,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 7.052694046952886,
+          "leaf_median_length_change_pct": 1.3056398416134452,
+          "plant_mean_of_leaf_medians_length_change_pct": 3.6419913508795636,
+          "leaf_median_area_change_pct": 7.4452164923199025,
+          "plant_mean_of_leaf_medians_area_change_pct": 7.3199552057073
+        },
+        "tip_10pct": {
+          "total": 90,
+          "fitted": 81,
+          "ok": 6,
+          "alerts": 75,
+          "failed": 0,
+          "skipped": 9,
+          "leaf_median_held_median": 0.021337522653540147,
+          "plant_mean_of_leaf_medians_held_median": 0.023130626907712764,
+          "leaf_median_held_p95": 0.05066653514846027,
+          "plant_mean_of_leaf_medians_held_p95": 0.05467868614458386,
+          "leaf_median_held_rmse": 0.027620421011260082,
+          "plant_mean_of_leaf_medians_held_rmse": 0.030842267170008715,
+          "leaf_median_held_p95_over_width": 0.37808112068258654,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.3962538958639887,
+          "leaf_median_held_p95_over_spacing": 14.388033921753465,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 16.25264357945878,
+          "leaf_median_length_change_pct": 13.272179228188344,
+          "plant_mean_of_leaf_medians_length_change_pct": 17.109374911955737,
+          "leaf_median_area_change_pct": 9.831355140350055,
+          "plant_mean_of_leaf_medians_area_change_pct": 9.6439576384121
+        },
+        "tip_20pct": {
+          "total": 90,
+          "fitted": 87,
+          "ok": 2,
+          "alerts": 85,
+          "failed": 0,
+          "skipped": 3,
+          "leaf_median_held_median": 0.02539651801407558,
+          "plant_mean_of_leaf_medians_held_median": 0.03070297636289735,
+          "leaf_median_held_p95": 0.07167862240838375,
+          "plant_mean_of_leaf_medians_held_p95": 0.07789968286285635,
+          "leaf_median_held_rmse": 0.04152262392458565,
+          "plant_mean_of_leaf_medians_held_rmse": 0.04488820613411105,
+          "leaf_median_held_p95_over_width": 0.5420023298542029,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.5810299472633378,
+          "leaf_median_held_p95_over_spacing": 20.73227969298717,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 21.741422824720765,
+          "leaf_median_length_change_pct": 18.043289074067218,
+          "plant_mean_of_leaf_medians_length_change_pct": 16.99816754646729,
+          "leaf_median_area_change_pct": 11.252262243767502,
+          "plant_mean_of_leaf_medians_area_change_pct": 13.2690699141952
+        },
+        "tip_30pct": {
+          "total": 90,
+          "fitted": 88,
+          "ok": 3,
+          "alerts": 85,
+          "failed": 0,
+          "skipped": 2,
+          "leaf_median_held_median": 0.03763844253691329,
+          "plant_mean_of_leaf_medians_held_median": 0.038375029121358616,
+          "leaf_median_held_p95": 0.10336116379191419,
+          "plant_mean_of_leaf_medians_held_p95": 0.10321397883060708,
+          "leaf_median_held_rmse": 0.05711038144434112,
+          "plant_mean_of_leaf_medians_held_rmse": 0.05796754573159838,
+          "leaf_median_held_p95_over_width": 0.8575463479313279,
+          "plant_mean_of_leaf_medians_held_p95_over_width": 0.8654348521471515,
+          "leaf_median_held_p95_over_spacing": 27.711912119914572,
+          "plant_mean_of_leaf_medians_held_p95_over_spacing": 28.67028940265548,
+          "leaf_median_length_change_pct": 10.838868556145732,
+          "plant_mean_of_leaf_medians_length_change_pct": 12.288845622750221,
+          "leaf_median_area_change_pct": 18.978131635602413,
+          "plant_mean_of_leaf_medians_area_change_pct": 20.47386745251726
+        }
+      }
+    },
+    "paired_p95_decreased": 104,
+    "paired_p95_increased": 40,
+    "paired_p95_equal": 280,
+    "table_sha256": "7cc108b10085f41c13b8619e9f0c2f2dd5bf7b7d22e3a813362d45e513d1be00",
+    "paired_complete_summary": {
+      "hole": {
+        "n": 85,
+        "before": {
+          "held_median": 0.002801003120434167,
+          "held_p95": 0.010511250335731925,
+          "held_rmse": 0.004940316421763643,
+          "held_p95_over_width": 0.07695352482652669,
+          "length_change_pct": 3.07423690247753,
+          "area_change_pct": 5.652581293092436
+        },
+        "after": {
+          "held_median": 0.002801003120434167,
+          "held_p95": 0.010511250335731925,
+          "held_rmse": 0.004940316421763643,
+          "held_p95_over_width": 0.07695352482652669,
+          "length_change_pct": 3.07423690247753,
+          "area_change_pct": 5.161614870014453
+        }
+      },
+      "margin": {
+        "n": 84,
+        "before": {
+          "held_median": 0.007297614359680286,
+          "held_p95": 0.0249855774407585,
+          "held_rmse": 0.012527616100028598,
+          "held_p95_over_width": 0.19365250147798826,
+          "length_change_pct": 1.3056398416134452,
+          "area_change_pct": 7.4452164923199025
+        },
+        "after": {
+          "held_median": 0.007297614359680286,
+          "held_p95": 0.0249855774407585,
+          "held_rmse": 0.012527616100028598,
+          "held_p95_over_width": 0.19434985325864493,
+          "length_change_pct": 1.3056398416134452,
+          "area_change_pct": 7.4452164923199025
+        }
+      },
+      "tip_10pct": {
+        "n": 81,
+        "before": {
+          "held_median": 0.025207902317104406,
+          "held_p95": 0.057718363767160726,
+          "held_rmse": 0.033595874107797886,
+          "held_p95_over_width": 0.40971745976534846,
+          "length_change_pct": 12.540734500496361,
+          "area_change_pct": 10.6019977719984
+        },
+        "after": {
+          "held_median": 0.021337522653540147,
+          "held_p95": 0.05066653514846027,
+          "held_rmse": 0.027620421011260082,
+          "held_p95_over_width": 0.37808112068258654,
+          "length_change_pct": 13.272179228188344,
+          "area_change_pct": 9.831355140350055
+        }
+      },
+      "tip_20pct": {
+        "n": 87,
+        "before": {
+          "held_median": 0.03023009584284679,
+          "held_p95": 0.0878484645797159,
+          "held_rmse": 0.04711894086291351,
+          "held_p95_over_width": 0.6025573153437594,
+          "length_change_pct": 17.1232273970878,
+          "area_change_pct": 10.951459520456101
+        },
+        "after": {
+          "held_median": 0.02539651801407558,
+          "held_p95": 0.07167862240838375,
+          "held_rmse": 0.04152262392458565,
+          "held_p95_over_width": 0.5420023298542029,
+          "length_change_pct": 18.043289074067218,
+          "area_change_pct": 11.252262243767502
+        }
+      },
+      "tip_30pct": {
+        "n": 87,
+        "before": {
+          "held_median": 0.045399720506161846,
+          "held_p95": 0.110786101260984,
+          "held_rmse": 0.058857589757453255,
+          "held_p95_over_width": 0.9065027899059775,
+          "length_change_pct": 9.12942802533777,
+          "area_change_pct": 18.91410884437868
+        },
+        "after": {
+          "held_median": 0.03736370854268089,
+          "held_p95": 0.10265853179301049,
+          "held_rmse": 0.05650484645323826,
+          "held_p95_over_width": 0.8195197469447875,
+          "length_change_pct": 10.36617534718337,
+          "area_change_pct": 18.97072452835873
+        }
+      }
+    }
+  },
+  "key_cases": [
+    {
+      "plant": "1-1-2",
+      "leaf_id": 2,
+      "scenario": "margin",
+      "raw_points": 1261,
+      "withheld_points": 106,
+      "removed_raw_points": 106,
+      "observed_points": 1155,
+      "ref_length": 0.27165917304223863,
+      "ref_area": 0.0448870624396543,
+      "ref_max_width": 0.19151989691229382,
+      "spacing": 0.0037236900447001967,
+      "tip_width_ratio": 0.5473276376921764,
+      "tip_narrow_reference": false,
+      "artifact": "cases/1-1-2/leaf_02/margin",
+      "held_median": 0.0040007684657083166,
+      "held_p95": 0.014303357749226277,
+      "held_rmse": 0.006882374715068047,
+      "ref_held_p95": 0.003484184698247196,
+      "held_p95_over_width": 0.0746834035514152,
+      "held_rmse_over_width": 0.0359355598349127,
+      "held_p95_over_spacing": 3.8411783949589915,
+      "length": 0.385465842561206,
+      "area": 0.04881153281655402,
+      "geometry_method": "linear",
+      "observed_quality_passed": true,
+      "extrapolated_fraction": 0.25214523509960807,
+      "tip_completion_status": "boundary_limited",
+      "length_change_pct": 41.893181166855804,
+      "area_change_pct": 8.742987764404802,
+      "length_signed_change_pct": 41.89318116685581,
+      "area_signed_change_pct": 8.742987764404809,
+      "alerts": [
+        "length_change"
+      ],
+      "status": "alert",
+      "elapsed_s": 12.129
+    },
+    {
+      "plant": "2-2-2",
+      "leaf_id": 4,
+      "scenario": "tip_20pct",
+      "raw_points": 2116,
+      "withheld_points": 104,
+      "removed_raw_points": 109,
+      "observed_points": 2007,
+      "ref_length": 0.7382088802090497,
+      "ref_area": 0.07717666879112237,
+      "ref_max_width": 0.09809397356073701,
+      "spacing": 0.003514679467960148,
+      "tip_width_ratio": 0.637198480522332,
+      "tip_narrow_reference": false,
+      "artifact": "cases/2-2-2/leaf_04/tip_20pct",
+      "held_median": 0.05919297459244113,
+      "held_p95": 0.12117575634872561,
+      "held_rmse": 0.07193765316826267,
+      "ref_held_p95": 0.05694693069906491,
+      "held_p95_over_width": 1.2353027607113602,
+      "held_rmse_over_width": 0.7333544616145141,
+      "held_p95_over_spacing": 34.47704334160909,
+      "length": 0.788311947268478,
+      "area": 0.07356296421862987,
+      "geometry_method": "smoothed",
+      "observed_quality_passed": true,
+      "extrapolated_fraction": 0.20401320227534173,
+      "tip_completion_status": "boundary_limited",
+      "length_change_pct": 6.787112483019684,
+      "area_change_pct": 4.682379570272639,
+      "length_signed_change_pct": 6.787112483019686,
+      "area_signed_change_pct": -4.682379570272643,
+      "alerts": [
+        "held_p95"
+      ],
+      "status": "alert",
+      "elapsed_s": 11.557
+    },
+    {
+      "plant": "2-5-1",
+      "leaf_id": 4,
+      "scenario": "tip_30pct",
+      "raw_points": 6849,
+      "withheld_points": 1512,
+      "removed_raw_points": 1566,
+      "observed_points": 5283,
+      "ref_length": 1.1211863618240216,
+      "ref_area": 0.15336874288853372,
+      "ref_max_width": 0.14499292066243422,
+      "spacing": 0.0038298424594880535,
+      "tip_width_ratio": 0.4615594354690453,
+      "tip_narrow_reference": false,
+      "artifact": "cases/2-5-1/leaf_04/tip_30pct",
+      "held_median": 0.10949349517396917,
+      "held_p95": 0.2721544882741778,
+      "held_rmse": 0.14689038369824312,
+      "ref_held_p95": 0.016977986805706946,
+      "held_p95_over_width": 1.8770191470781892,
+      "held_rmse_over_width": 1.013086590897955,
+      "held_p95_over_spacing": 71.06153612139897,
+      "length": 1.887625909812842,
+      "area": 0.20319251593929177,
+      "geometry_method": "linear",
+      "observed_quality_passed": true,
+      "extrapolated_fraction": 0.3104763450591623,
+      "tip_completion_status": "boundary_limited",
+      "length_change_pct": 68.35969238351461,
+      "area_change_pct": 32.48626291927637,
+      "length_signed_change_pct": 68.35969238351463,
+      "area_signed_change_pct": 32.48626291927636,
+      "alerts": [
+        "held_p95",
+        "length_change",
+        "area_change"
+      ],
+      "status": "alert",
+      "elapsed_s": 61.882
+    }
+  ],
+  "full_input_audit": {
+    "leaves": 90,
+    "orientation_reversed_leaves": {
+      "before": 0,
+      "after": 0
+    },
+    "quality_passed": {
+      "before": 90,
+      "after": 90
+    },
+    "apex_closure_failed": {
+      "before": 0,
+      "after": 0
+    },
+    "surface_support_mean_median": {
+      "before": 0.005972972686021736,
+      "after": 0.005973385873649045
+    },
+    "surface_support_improved_leaves": 33,
+    "width_more_than_doubled_leaves": 0,
+    "raw": {
+      "before": {
+        "median": 0.0024523253389188942,
+        "p95": 0.01516808186053898,
+        "rmse": 0.009787427113094157
+      },
+      "after": {
+        "median": 0.002450361506698507,
+        "p95": 0.015196935868090247,
+        "rmse": 0.009753914617315916
+      },
+      "p95_improved_leaves": 49
+    },
+    "retained": {
+      "before": {
+        "median": 0.00231619724644573,
+        "p95": 0.009782559548606334,
+        "rmse": 0.004879146147570269
+      },
+      "after": {
+        "median": 0.0023130249288342035,
+        "p95": 0.009782559548620253,
+        "rmse": 0.00488577393457027
+      },
+      "p95_improved_leaves": 43
+    }
+  },
+  "export_consistency": {
+    "plants": 14,
+    "leaves": 90,
+    "all_quality_passed": true,
+    "max_model_ply_coordinate_difference": 4.999980429687412e-09,
+    "max_plant_ply_coordinate_difference": 0.0
+  },
+  "tests": {
+    "passed": 22,
+    "total": 22,
+    "command": "python scripts/run_tests.py"
+  },
+  "table_sha256": {
+    "holdout_per_leaf_2026-11-25.csv": "37bb7331afe21065f7b15dfa6e149284e6c834d8abf7971028be66a75881040a",
+    "holdout_paired_2026-11-25.csv": "7cc108b10085f41c13b8619e9f0c2f2dd5bf7b7d22e3a813362d45e513d1be00"
+  },
+  "analysis_source_sha256": {
+    "scripts/compare_holdout.py": "72d14a053361b3fccd81ced90d2ba000de81cedb464329541bc98300cda03767",
+    "scripts/plot_holdout.py": "6a0524dab4031ba338be7d31053fadf4266b58ad8959282c1f5e036a43926ea1",
+    "scripts/experiment_tip_policy.py": "878bdd87c26c075c28149400bb313fdd933c2e166ff8dbce218601a2e7da7735"
+  },
+  "figure_qa": {
+    "baseline_figures": 3,
+    "final_figures": 9,
+    "alignment_passed": true,
+    "pdf_font_and_collision_failed_checks": 0,
+    "reviewed_source_warnings": [
+      "PNG 300 dpi and diagnostic page dimensions; no journal TIFF requested",
+      "Log display floor 1e-8 is explicit; raw table values unchanged"
+    ]
+  },
+  "rejected_shortening_ablation": {
+    "policy": "force fixed observed length for a bound-limited optimum",
+    "reproduction_driver": "scripts/experiment_tip_policy.py",
+    "paired_summary": {
+      "hole": {
+        "n": 85,
+        "before": {
+          "held_median": 0.002801003120434167,
+          "held_p95": 0.010511250335731925,
+          "held_rmse": 0.004940316421763643,
+          "held_p95_over_width": 0.07695352482652669,
+          "length_change_pct": 3.07423690247753,
+          "area_change_pct": 5.652581293092436
+        },
+        "after": {
+          "held_median": 0.002801003120434167,
+          "held_p95": 0.010233084418854217,
+          "held_rmse": 0.004940316421763643,
+          "held_p95_over_width": 0.07695352482652669,
+          "length_change_pct": 1.7847538451447356,
+          "area_change_pct": 5.020286871997426
+        }
+      },
+      "margin": {
+        "n": 84,
+        "before": {
+          "held_median": 0.007297614359680286,
+          "held_p95": 0.0249855774407585,
+          "held_rmse": 0.012527616100028598,
+          "held_p95_over_width": 0.19365250147798826,
+          "length_change_pct": 1.3056398416134452,
+          "area_change_pct": 7.4452164923199025
+        },
+        "after": {
+          "held_median": 0.007297614359680286,
+          "held_p95": 0.0249855774407585,
+          "held_rmse": 0.012527616100028598,
+          "held_p95_over_width": 0.19434985325864493,
+          "length_change_pct": 1.084318102442031,
+          "area_change_pct": 6.9135722986529125
+        }
+      },
+      "tip_10pct": {
+        "n": 81,
+        "before": {
+          "held_median": 0.025207902317104406,
+          "held_p95": 0.057718363767160726,
+          "held_rmse": 0.033595874107797886,
+          "held_p95_over_width": 0.40971745976534846,
+          "length_change_pct": 12.540734500496361,
+          "area_change_pct": 10.6019977719984
+        },
+        "after": {
+          "held_median": 0.02993999369471135,
+          "held_p95": 0.06501887549404291,
+          "held_rmse": 0.03651309253478215,
+          "held_p95_over_width": 0.5124949589119198,
+          "length_change_pct": 10.728452392629123,
+          "area_change_pct": 8.456130490268915
+        }
+      },
+      "tip_20pct": {
+        "n": 87,
+        "before": {
+          "held_median": 0.03023009584284679,
+          "held_p95": 0.0878484645797159,
+          "held_rmse": 0.04711894086291351,
+          "held_p95_over_width": 0.6025573153437594,
+          "length_change_pct": 17.1232273970878,
+          "area_change_pct": 10.951459520456101
+        },
+        "after": {
+          "held_median": 0.047011562963605924,
+          "held_p95": 0.11002773714148904,
+          "held_rmse": 0.06274520754962261,
+          "held_p95_over_width": 0.8246730737082306,
+          "length_change_pct": 18.883251655905998,
+          "area_change_pct": 18.373228349465855
+        }
+      },
+      "tip_30pct": {
+        "n": 87,
+        "before": {
+          "held_median": 0.045399720506161846,
+          "held_p95": 0.110786101260984,
+          "held_rmse": 0.058857589757453255,
+          "held_p95_over_width": 0.9065027899059775,
+          "length_change_pct": 9.12942802533777,
+          "area_change_pct": 18.91410884437868
+        },
+        "after": {
+          "held_median": 0.07175332802027826,
+          "held_p95": 0.17588806239642663,
+          "held_rmse": 0.09924782617585352,
+          "held_p95_over_width": 1.2972541339327728,
+          "length_change_pct": 27.643532274310203,
+          "area_change_pct": 28.10497166819695
+        }
+      }
+    }
+  }
+}
