@@ -144,7 +144,14 @@ def make_diagnostic_figure(out_png, primary_out, ablation_results, height_summar
 
     # Panel (b): Standardized cluster centroid profiles across M4 features
     ax = axes[0, 1]
-    feat_short = [r"$\theta$ (angle)", r"$g$ (tip gain)", r"$d$ (droop)", r"$K_{\mathrm{mid}}$ (curv)", r"$\rho$ (proj)"]
+    feat_short = [
+        r"$\theta$" + "\n(angle)",
+        r"$\rho$" + "\n(proj ratio)",
+        r"$A_{h,\mathrm{rel}}$" + "\n(rel proj)",
+        r"$g$" + "\n(tip gain)",
+        r"$d$" + "\n(droop)",
+        r"$H_{\mathrm{pit}}$" + "\n(entropy)",
+    ]
     x_f = np.arange(len(feat_short))
     w = 0.25
     C = primary_out["centers_scaled"]
@@ -152,16 +159,16 @@ def make_diagnostic_figure(out_png, primary_out, ablation_results, height_summar
         ax.bar(x_f + (c - 1) * w, C[c], width=w, color=colors[c], alpha=0.88, label=CLASS_NAMES[c])
     ax.axhline(0.0, color="#444444", lw=0.8)
     ax.set_xticks(x_f)
-    ax.set_xticklabels(feat_short, fontsize=8.3)
+    ax.set_xticklabels(feat_short, fontsize=8.0)
     ax.set_ylabel("Robust-scaled centroid coordinate")
-    ax.set_title("b  Cluster Centroid Profiles (Post-hoc Semantic Anchoring)")
+    ax.set_title("b  Cluster Centroid Profiles (4-Factor Pure Morphology)")
     ax.grid(axis="y", alpha=0.25, ls=":")
     ax.legend(fontsize=8.0, loc="upper right")
 
-    # Panel (c): Feature ablation M1..M5 (LOPO OOF ARI, Fold ARI, Silhouette & Switch rate)
+    # Panel (c): Feature ablation M1..M5 (LOPO OOF ARI, Fold ARI, Silhouette)
     ax = axes[1, 0]
     m_keys = list(ABLATION_MODELS.keys())
-    short_m = ["M1\n(θ)", "M2\n(θ,g,d)", "M3\n(+K)", "M4\n(+ρ)\n[main]", "M5\n(+H_N)"]
+    short_m = ["M1\n(θ)", "M2\n(+Proj)", "M3\n(+g,d)", "M4\n(+H_pit)\n[main]", "M5\n(+H_N)\n[alt]"]
     xm = np.arange(len(m_keys))
     oof_aris = [ablation_results[k]["lopo_oof_ari"] for k in m_keys]
     fold_aris = [ablation_results[k]["lopo_fold_ari_mean"] for k in m_keys]
@@ -273,27 +280,45 @@ def main():
             flush=True,
         )
 
-    # 3. Formal Hypothesis H3 comparison: M5 (with entropy) vs M4 (without entropy)
+    # 3. Formal Hypothesis H3 comparison: M4 (+H_pit) vs M3 (no entropy) and M5 (+H_N) vs M3
+    m3m = ablation_summary["M3_angle_proj_pose"]
     m4m = ablation_summary["M4_primary"]
-    m5m = ablation_summary["M5_with_entropy"]
+    m5m = ablation_summary["M5_alt_normal_entropy"]
+    h_m3 = posthoc_height_analysis(ablation_outs["M3_angle_proj_pose"]["full_labels"], heights, plant_ids)
     h_m4 = posthoc_height_analysis(ablation_outs["M4_primary"]["full_labels"], heights, plant_ids)
-    h_m5 = posthoc_height_analysis(ablation_outs["M5_with_entropy"]["full_labels"], heights, plant_ids)
+    h_m5 = posthoc_height_analysis(ablation_outs["M5_alt_normal_entropy"]["full_labels"], heights, plant_ids)
     h3_delta = {
-        "delta_lopo_oof_ari": m5m["lopo_oof_ari"] - m4m["lopo_oof_ari"],
-        "delta_lopo_fold_ari": m5m["lopo_fold_ari_mean"] - m4m["lopo_fold_ari_mean"],
-        "delta_switch_rate_pct": m5m["lopo_oof_switch_rate_pct"] - m4m["lopo_oof_switch_rate_pct"],
-        "delta_silhouette": m5m["silhouette"] - m4m["silhouette"],
-        "delta_ambiguous_r080_pct": m5m["ambiguous_rate_r080_pct"] - m4m["ambiguous_rate_r080_pct"],
-        "ari_m4_vs_m5": adjusted_rand_index(ablation_outs["M4_primary"]["full_labels"], ablation_outs["M5_with_entropy"]["full_labels"]),
-        "agreement_m4_vs_m5_pct": 100.0 * float(np.mean(ablation_outs["M4_primary"]["full_labels"] == ablation_outs["M5_with_entropy"]["full_labels"])),
-        "m4_height_kruskal_H": h_m4["kruskal_wallis_H"],
-        "m5_height_kruskal_H": h_m5["kruskal_wallis_H"],
+        "pitch_entropy_m4_minus_m3": {
+            "delta_lopo_oof_ari": m4m["lopo_oof_ari"] - m3m["lopo_oof_ari"],
+            "delta_lopo_fold_ari": m4m["lopo_fold_ari_mean"] - m3m["lopo_fold_ari_mean"],
+            "delta_switch_rate_pct": m4m["lopo_oof_switch_rate_pct"] - m3m["lopo_oof_switch_rate_pct"],
+            "delta_silhouette": m4m["silhouette"] - m3m["silhouette"],
+            "delta_ambiguous_r080_pct": m4m["ambiguous_rate_r080_pct"] - m3m["ambiguous_rate_r080_pct"],
+            "ari_m4_vs_m3": adjusted_rand_index(ablation_outs["M3_angle_proj_pose"]["full_labels"], ablation_outs["M4_primary"]["full_labels"]),
+            "agreement_m4_vs_m3_pct": 100.0 * float(np.mean(ablation_outs["M3_angle_proj_pose"]["full_labels"] == ablation_outs["M4_primary"]["full_labels"])),
+            "m3_height_kruskal_H": h_m3["kruskal_wallis_H"],
+            "m4_height_kruskal_H": h_m4["kruskal_wallis_H"],
+        },
+        "normal_entropy_m5_minus_m3": {
+            "delta_lopo_oof_ari": m5m["lopo_oof_ari"] - m3m["lopo_oof_ari"],
+            "delta_lopo_fold_ari": m5m["lopo_fold_ari_mean"] - m3m["lopo_fold_ari_mean"],
+            "delta_switch_rate_pct": m5m["lopo_oof_switch_rate_pct"] - m3m["lopo_oof_switch_rate_pct"],
+            "delta_silhouette": m5m["silhouette"] - m3m["silhouette"],
+            "m5_height_kruskal_H": h_m5["kruskal_wallis_H"],
+        },
+        "pitch_vs_normal_entropy_m4_vs_m5": {
+            "delta_lopo_oof_ari": m4m["lopo_oof_ari"] - m5m["lopo_oof_ari"],
+            "delta_lopo_fold_ari": m4m["lopo_fold_ari_mean"] - m5m["lopo_fold_ari_mean"],
+            "ari_m4_vs_m5": adjusted_rand_index(ablation_outs["M4_primary"]["full_labels"], ablation_outs["M5_alt_normal_entropy"]["full_labels"]),
+            "agreement_m4_vs_m5_pct": 100.0 * float(np.mean(ablation_outs["M4_primary"]["full_labels"] == ablation_outs["M5_alt_normal_entropy"]["full_labels"])),
+        },
     }
+    p_d = h3_delta["pitch_entropy_m4_minus_m3"]
     print(
-        f"\n=== Hypothesis H3 (Entropy Increment M5 - M4) ===\n"
-        f"  dOOF_ARI={h3_delta['delta_lopo_oof_ari']:+.4f}, dFoldARI={h3_delta['delta_lopo_fold_ari']:+.4f}, "
-        f"dSwitch={h3_delta['delta_switch_rate_pct']:+.2f}%, dSil={h3_delta['delta_silhouette']:+.4f}, "
-        f"dAmb={h3_delta['delta_ambiguous_r080_pct']:+.2f}%, M4-M5 agree={h3_delta['agreement_m4_vs_m5_pct']:.1f}%",
+        f"\n=== Hypothesis H3 (Pitch Entropy H_pit Increment M4 - M3) ===\n"
+        f"  dOOF_ARI={p_d['delta_lopo_oof_ari']:+.4f}, dFoldARI={p_d['delta_lopo_fold_ari']:+.4f}, "
+        f"dSwitch={p_d['delta_switch_rate_pct']:+.2f}%, dSil={p_d['delta_silhouette']:+.4f}, "
+        f"H_height: M3={p_d['m3_height_kruskal_H']:.2f} -> M4={p_d['m4_height_kruskal_H']:.2f}",
         flush=True,
     )
 
@@ -328,6 +353,9 @@ def main():
             "droop_ratio": float(r["droop_ratio"]),
             "midrib_curvature_total": float(r["midrib_curvature_total"]),
             "projection_ratio": float(r["projection_ratio"]),
+            "rel_projected_area": float(r["rel_projected_area"]),
+            "pitch_entropy_b12": float(r["pitch_entropy_b12"]),
+            "mean_pitch_deg": float(r["mean_pitch_deg"]),
             "normal_entropy_b24": float(r["normal_entropy_b24"]),
             "cluster_kmeans": CLASS_NAMES[km_lbl[i]],
             "cluster_kmeans_id": int(km_lbl[i]),

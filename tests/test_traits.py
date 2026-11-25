@@ -3,7 +3,11 @@ import unittest
 import numpy as np
 from scipy.interpolate import BSpline
 
-from maize_leaf.entropy import equal_area_bin_centers, normal_hemisphere_entropy
+from maize_leaf.entropy import (
+    equal_area_bin_centers,
+    normal_hemisphere_entropy,
+    surface_pitch_entropy_from_grid,
+)
 from maize_leaf.geometry import fit_pspline_gcv
 from maize_leaf.traits import (
     _basal_surface_tangent_from_grid,
@@ -142,6 +146,31 @@ class StageDMathTraitsTests(unittest.TestCase):
             vecs = equal_area_bin_centers(n_bins=nb)
             self.assertEqual(len(vecs), nb)
             self.assertAlmostEqual(normal_hemisphere_entropy(vecs, np.ones(nb), n_bins=nb), 1.0, places=10)
+
+    def test_pitch_entropy_roll_invariance_and_arch_growth(self):
+        # Straight planar blade at exact +40 deg pitch with strong 60 deg lateral roll -> H_pit == 0.0
+        pitch_rad = np.radians(40.0)
+        roll_rad = np.radians(60.0)
+        t_dir = np.array([np.cos(pitch_rad), 0.0, np.sin(pitch_rad)])
+        b0 = np.array([0.0, 1.0, 0.0])
+        n0 = np.cross(t_dir, b0)
+        b_rolled = np.cos(roll_rad) * b0 + np.sin(roll_rad) * n0
+
+        s_vals = np.linspace(0.0, 1.0, 40)
+        v_vals = np.linspace(-0.9, 0.9, 15)
+        ss, vv = np.meshgrid(s_vals, v_vals, indexing="ij")
+        xyz_flat = ss[:, :, None] * t_dir[None, None, :] + (0.08 * vv)[:, :, None] * b_rolled[None, None, :]
+        h_flat, mean_p = surface_pitch_entropy_from_grid(xyz_flat, s_vals, v_vals, n_bins=12)
+        self.assertAlmostEqual(h_flat, 0.0, places=10)
+        self.assertAlmostEqual(mean_p, 40.0, delta=1e-4)
+
+        # Semicircular arch spanning pitch +90 deg down to -90 deg -> uniform across all 12 bins -> H_pit ~ 1.0
+        ang = np.linspace(0.0, np.pi, 180)
+        aa, vv2 = np.meshgrid(ang, v_vals, indexing="ij")
+        xyz_arch = np.stack([1.0 - np.cos(aa), 0.08 * vv2, np.sin(aa)], axis=2)
+        h_arch, mean_arch = surface_pitch_entropy_from_grid(xyz_arch, ang, v_vals, n_bins=12)
+        self.assertGreater(h_arch, 0.95)
+        self.assertAlmostEqual(mean_arch, 0.0, delta=1.5)
 
     def test_canopy_radial_envelope_exact_radius(self):
         # Cylindrical point shell of radius 0.3 around a tilted stem x_s(z) = 0.2 * z

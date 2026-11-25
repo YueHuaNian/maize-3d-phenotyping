@@ -21,15 +21,25 @@ from scipy.special import logsumexp
 CLASS_NAMES = ("convergent", "expanded", "drooping")
 CLASS_NAMES_ZH = ("聚拢", "伸展", "下垂")
 
-# Ablation feature hierarchy defined in V2.0 plan (height strictly excluded!)
+# Ablation feature hierarchy (pure single-leaf morphology; height & canopy occlusion strictly excluded!)
+# Four physical dimensions in M4_primary:
+#   1) Basal emergence angle: stem_leaf_angle_deg (theta)
+#   2) Horizontal projected area (efficiency + within-plant scale): projection_ratio (rho), rel_projected_area (Ah_rel)
+#   3) Vertical terminal pose: tip_gain (g), droop_ratio (d)
+#   4) Longitudinal orientation complexity: pitch_entropy_b12 (H_pit)
 ABLATION_MODELS = {
     "M1_angle": ["stem_leaf_angle_deg"],
-    "M2_pose": ["stem_leaf_angle_deg", "tip_gain", "droop_ratio"],
-    "M3_pose_curv": ["stem_leaf_angle_deg", "tip_gain", "droop_ratio", "midrib_curvature_total"],
-    "M4_primary": ["stem_leaf_angle_deg", "tip_gain", "droop_ratio", "midrib_curvature_total", "projection_ratio"],
-    "M5_with_entropy": [
-        "stem_leaf_angle_deg", "tip_gain", "droop_ratio", "midrib_curvature_total",
-        "projection_ratio", "normal_entropy_b24",
+    "M2_angle_proj": ["stem_leaf_angle_deg", "projection_ratio", "rel_projected_area"],
+    "M3_angle_proj_pose": [
+        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area", "tip_gain", "droop_ratio",
+    ],
+    "M4_primary": [
+        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area",
+        "tip_gain", "droop_ratio", "pitch_entropy_b12",
+    ],
+    "M5_alt_normal_entropy": [
+        "stem_leaf_angle_deg", "projection_ratio", "rel_projected_area",
+        "tip_gain", "droop_ratio", "normal_entropy_b24",
     ],
 }
 
@@ -302,8 +312,9 @@ def semantic_anchor_order(raw_centroids_scaled, feature_names):
         "stem_leaf_angle_deg": -1.0,
         "tip_gain": +1.0,
         "droop_ratio": -1.0,
+        "pitch_entropy_b12": -0.35,
+        "normal_entropy_b24": -0.35,
         "midrib_curvature_total": -1.0,
-        "projection_ratio": -0.5,
     }
     C = np.asarray(raw_centroids_scaled, dtype=float)
     # Standardize centroids across the k clusters for equal-scale semantic scoring

@@ -25,7 +25,7 @@ import numpy as np
 from scipy.interpolate import BSpline
 from scipy.spatial import cKDTree
 
-from .entropy import mesh_normal_entropy
+from .entropy import mesh_normal_entropy, model_pitch_entropy
 from .geometry import fit_pspline_gcv, project_points_to_curve, unit
 from .surface import MaizeLeafModel, leaf_mesh_grid
 
@@ -533,12 +533,18 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
         # 3. Surface curvature via first & second fundamental forms (with margin trim)
         curv = surface_curvature_fundamental_forms(model, margin_trim_frac=margin_trim_frac)
 
-        # 4. Optional standalone area-weighted hemisphere normal entropy (B=12, 24, 48)
+        # 4. Standalone area-weighted orientation entropies:
+        #    - Primary 1D longitudinal pitch-angle Shannon entropy H_pit (B=6, 12, 24)
+        #    - Comparator 3D equal-solid-angle hemisphere normal entropy H_N (B=12, 24, 48)
         if include_entropy:
+            h_pit_b6, mean_pitch_deg = model_pitch_entropy(model, n_bins=6)
+            h_pit_b12, _ = model_pitch_entropy(model, n_bins=12)
+            h_pit_b24, _ = model_pitch_entropy(model, n_bins=24)
             h_b12 = mesh_normal_entropy(verts, faces, n_bins=12)
             h_b24 = mesh_normal_entropy(verts, faces, n_bins=24)
             h_b48 = mesh_normal_entropy(verts, faces, n_bins=48)
         else:
+            h_pit_b6 = h_pit_b12 = h_pit_b24 = mean_pitch_deg = float("nan")
             h_b12 = h_b24 = h_b48 = float("nan")
 
         af = t_json.get("area_fractions", {})
@@ -587,6 +593,10 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
             "mean_curvature_abs_dimless": curv["mean_curvature_abs_dimless"],
             "gaussian_curvature_abs": curv["gaussian_curvature_abs"],
             "willmore_bending_functional": curv["willmore_bending_functional"],
+            "mean_pitch_deg": mean_pitch_deg,
+            "pitch_entropy_b6": h_pit_b6,
+            "pitch_entropy_b12": h_pit_b12,
+            "pitch_entropy_b24": h_pit_b24,
             "normal_entropy_b12": h_b12,
             "normal_entropy_b24": h_b24,
             "normal_entropy_b48": h_b48,
@@ -611,7 +621,9 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
     stem_z_max = float(stem_sampled[:, 2].max())
     stem_span = max(stem_z_max - stem_z_min, 1e-12)
 
+    max_proj_elem = max((r["projected_area_element"] for r in leaf_records), default=0.0)
     for rec in leaf_records:
+        rec["rel_projected_area"] = float(rec["projected_area_element"] / max(max_proj_elem, 1e-12))
         rec["norm_base_height"] = float(np.clip((rec["base_z"] - z_min) / max(plant_height, 1e-12), 0.0, 1.0))
         rec["stem_rel_height"] = float(np.clip((rec["base_z"] - stem_z_min) / stem_span, 0.0, 1.0))
 
@@ -662,6 +674,9 @@ def extract_plant_phenotypes(plant_dir, include_entropy=True, mesh_nu=120, mesh_
         "mean_stem_leaf_angle_deg": float(np.mean([r["stem_leaf_angle_deg"] for r in leaf_records])),
         "mean_droop_ratio": float(np.mean([r["droop_ratio"] for r in leaf_records])),
         "mean_midrib_curvature_total": float(np.mean([r["midrib_curvature_total"] for r in leaf_records])),
+        "mean_pitch_entropy_b12": (
+            float(np.nanmean([r["pitch_entropy_b12"] for r in leaf_records])) if include_entropy else float("nan")
+        ),
         "mean_normal_entropy_b24": (
             float(np.nanmean([r["normal_entropy_b24"] for r in leaf_records])) if include_entropy else float("nan")
         ),

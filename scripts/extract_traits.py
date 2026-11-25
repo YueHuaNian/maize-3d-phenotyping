@@ -164,13 +164,22 @@ def main():
     _write_csv(args.output / "plant_traits.csv", all_plants)
     _write_csv(args.output / "plant_envelopes.csv", all_envelopes)
 
-    # Entropy bin-resolution Spearman stability (B=12 vs 24 vs 48)
+    # Entropy bin-resolution Spearman stability (pitch B=6/12/24 & normal B=12/24/48)
     entropy_stability = {}
     if include_entropy:
+        hp6 = [r["pitch_entropy_b6"] for r in all_leaves]
+        hp12 = [r["pitch_entropy_b12"] for r in all_leaves]
+        hp24 = [r["pitch_entropy_b24"] for r in all_leaves]
         h12 = [r["normal_entropy_b12"] for r in all_leaves]
         h24 = [r["normal_entropy_b24"] for r in all_leaves]
         h48 = [r["normal_entropy_b48"] for r in all_leaves]
         entropy_stability = {
+            "pitch_entropy_med_b6": float(np.nanmedian(hp6)),
+            "pitch_entropy_med_b12": float(np.nanmedian(hp12)),
+            "pitch_entropy_med_b24": float(np.nanmedian(hp24)),
+            "pitch_spearman_b6_vs_b12": float(spearmanr(hp6, hp12, nan_policy="omit").statistic),
+            "pitch_spearman_b12_vs_b24": float(spearmanr(hp12, hp24, nan_policy="omit").statistic),
+            "pitch_spearman_b6_vs_b24": float(spearmanr(hp6, hp24, nan_policy="omit").statistic),
             "med_b12": float(np.nanmedian(h12)),
             "med_b24": float(np.nanmedian(h24)),
             "med_b48": float(np.nanmedian(h48)),

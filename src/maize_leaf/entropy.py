@@ -120,3 +120,53 @@ def mesh_normal_entropy(vertices, faces, n_bins=24):
     """Convenience wrapper computing area-weighted hemisphere normal entropy directly from a mesh."""
     normals, areas = triangle_normals_and_areas(vertices, faces)
     return normal_hemisphere_entropy(normals, areas, n_bins=n_bins)
+
+
+def surface_pitch_entropy_from_grid(xyz, s_vals, v_vals, n_bins=12):
+    """Area-weighted 1D Shannon entropy of longitudinal tangent pitch angle phi in [-90, +90] deg.
+
+    Mathematical properties:
+      - Longitudinal tangent S_s is tangent to the midrib/blade growth direction, so its vertical
+        pitch phi = arcsin(hat(S_s)_z) is strictly invariant to lateral blade roll around the
+        longitudinal axis and to leaf azimuth around the stem.
+      - Weighted by exact parametric surface area element dA = ||S_s x S_v|| ds dv (invariant to
+        scan point density).
+      - Normalized by ln(n_bins) so H_pit lies strictly in [0, 1]: 0 for a straight constant-pitch
+        blade (e.g., tightly upright young leaf), higher for strongly arched/bending blades.
+    """
+    ds = np.gradient(xyz, s_vals, axis=0, edge_order=2)
+    dv = np.gradient(xyz, v_vals, axis=1, edge_order=2)
+    jac = np.linalg.norm(np.cross(ds, dv), axis=2)
+
+    ws = np.empty(len(s_vals), dtype=float)
+    ws[0] = 0.5 * (s_vals[1] - s_vals[0])
+    ws[-1] = 0.5 * (s_vals[-1] - s_vals[-2])
+    ws[1:-1] = 0.5 * (s_vals[2:] - s_vals[:-2])
+
+    wv = np.empty(len(v_vals), dtype=float)
+    wv[0] = 0.5 * (v_vals[1] - v_vals[0])
+    wv[-1] = 0.5 * (v_vals[-1] - v_vals[-2])
+    wv[1:-1] = 0.5 * (v_vals[2:] - v_vals[:-2])
+
+    dA = jac * ws[:, None] * wv[None, :]
+    total_a = float(np.sum(dA))
+    if total_a <= 1e-15:
+        return float("nan"), float("nan")
+
+    ds_norm = np.maximum(np.linalg.norm(ds, axis=2), 1e-12)
+    pitch_deg = np.degrees(np.arcsin(np.clip(ds[:, :, 2] / ds_norm, -1.0, 1.0)))
+    edges = np.linspace(-90.0, 90.0, int(n_bins) + 1)
+    mass, _ = np.histogram(pitch_deg.ravel(), bins=edges, weights=dA.ravel())
+    p = mass[mass > 0.0] / total_a
+    h = -float(np.sum(p * np.log(p))) / np.log(float(n_bins))
+    mean_pitch = float(np.sum(pitch_deg * dA) / total_a)
+    return float(np.clip(h, 0.0, 1.0)), mean_pitch
+
+
+def model_pitch_entropy(model, n_bins=12, ns=60, nv=17, v_lim=0.90):
+    """Compute area-weighted longitudinal pitch-angle Shannon entropy directly from a MaizeLeafModel."""
+    s_vals = np.linspace(0.0, model.blade.length, ns)
+    v_vals = np.linspace(-float(v_lim), float(v_lim), nv)
+    ss, vv = np.meshgrid(s_vals, v_vals, indexing="ij")
+    xyz = model.evaluate(np.column_stack([ss.ravel(), vv.ravel()])).reshape(ns, nv, 3)
+    return surface_pitch_entropy_from_grid(xyz, s_vals, v_vals, n_bins=n_bins)

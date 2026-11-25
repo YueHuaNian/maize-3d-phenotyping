@@ -85,6 +85,9 @@ def load_classifications(csv_path):
                 droop_ratio=_parse_float(row.get("droop_ratio")),
                 midrib_curvature_total=_parse_float(row.get("midrib_curvature_total")),
                 projection_ratio=_parse_float(row.get("projection_ratio")),
+                rel_projected_area=_parse_float(row.get("rel_projected_area")),
+                pitch_entropy_b12=_parse_float(row.get("pitch_entropy_b12")),
+                mean_pitch_deg=_parse_float(row.get("mean_pitch_deg")),
                 normal_entropy_b24=_parse_float(row.get("normal_entropy_b24")),
                 cluster_kmeans=row.get("cluster_kmeans", "").strip(),
                 cluster_kmeans_lopo_oof=row.get("cluster_kmeans_lopo_oof", "").strip(),
@@ -125,10 +128,14 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
     if cls_rec.get("lopo_switched"):
         flags.append("LOPO切换")
     flag_line = f"<br><b>标记:</b> {' · '.join(flags)}" if flags else ""
+    rel_a = cls_rec.get("rel_projected_area")
+    h_pit = cls_rec.get("pitch_entropy_b12")
+    rel_a_txt = f"相对投影 A_h,rel={rel_a:.2f}" if rel_a is not None else ""
+    h_pit_txt = f"俯仰熵 H_pit={h_pit:.2f}" if h_pit is not None else f"中脉曲率 K_mid={cls_rec['midrib_curvature_total']:.2f}"
     return (
         f"<b>叶片 {leaf_id} · {cm['zh']} ({cm['en']})</b> [{mode_label}]"
-        f"<br>茎叶角 θ={cls_rec['stem_leaf_angle_deg']:.1f}° | 叶尖抬升 g={cls_rec['tip_gain']:+.2f} | 下垂比 d={cls_rec['droop_ratio']:.2f}"
-        f"<br>中脉曲率 K_mid={cls_rec['midrib_curvature_total']:.2f} | 投影比 ρ={cls_rec['projection_ratio']:.2f} | 相对高度 h={cls_rec['norm_base_height']:.2f}"
+        f"<br>茎叶角 θ={cls_rec['stem_leaf_angle_deg']:.1f}° | 投影比 ρ={cls_rec['projection_ratio']:.2f} | {rel_a_txt}"
+        f"<br>{h_pit_txt} | 叶尖抬升 g={cls_rec['tip_gain']:+.2f} | 下垂比 d={cls_rec['droop_ratio']:.2f} | 相对高度 h={cls_rec['norm_base_height']:.2f}"
         f"<br>边界比 r={cls_rec['distance_ratio_r']:.2f} | K-means={km} / FCM={fcm} / GMM={gmm}"
         f"<br>FCM隶属度: 收{cls_rec['fcm_prob_convergent']*100:.0f}% · 展{cls_rec['fcm_prob_expanded']*100:.0f}% · 垂{cls_rec['fcm_prob_drooping']*100:.0f}%"
         f"{flag_line}"
@@ -611,10 +618,9 @@ function renderSidebar() {
       </table>
       <div class="kv">
         <span class="k">茎叶角 θ (15%基部叶面)</span><span class="v">${fmt(c.stem_leaf_angle_deg, 1)}°</span>
-        <span class="k">叶尖抬升 g</span><span class="v">${fmt(c.tip_gain, 3)}</span>
-        <span class="k">下垂比 d</span><span class="v">${fmt(c.droop_ratio, 3)}</span>
-        <span class="k">中脉总曲率 K_mid</span><span class="v">${fmt(c.midrib_curvature_total, 2)}</span>
-        <span class="k">投影比 ρ</span><span class="v">${fmt(c.projection_ratio, 3)}</span>
+        <span class="k">投影比 ρ / 相对投影 A_h,rel</span><span class="v">${fmt(c.projection_ratio, 3)} / ${fmt(c.rel_projected_area, 2)}</span>
+        <span class="k">纵轴俯仰角信息熵 H_pit</span><span class="v">${fmt(c.pitch_entropy_b12, 3)}</span>
+        <span class="k">叶尖抬升 g / 下垂比 d</span><span class="v">${fmt(c.tip_gain, 3)} / ${fmt(c.droop_ratio, 3)}</span>
         <span class="k">相对叶位高度 h (未入聚类)</span><span class="v">${fmt(c.norm_base_height, 3)}</span>
       </div>` : '';
     metricsEl.innerHTML = clsHtml + `

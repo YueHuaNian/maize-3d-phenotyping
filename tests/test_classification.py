@@ -19,16 +19,17 @@ from maize_leaf.classification import (
 class StageEClassificationTests(unittest.TestCase):
     def _make_well_separated_plants(self, seed=7):
         rng = np.random.default_rng(seed)
-        # 10 synthetic plants, each with 6 leaves spanning 3 clean pose clusters:
-        #   0=convergent (small angle ~20, high tip_gain +0.75, low droop 0.02, low K 1.2, low rho 0.35)
-        #   1=expanded   (mid angle ~50, mid tip_gain +0.20, mid droop 0.12, mid K 2.5, mid rho 0.62)
-        #   2=drooping   (large angle ~80, neg tip_gain -0.30, high droop 0.38, high K 4.2, mid-high rho 0.68)
+        # 10 synthetic plants, each with 6 leaves spanning 3 clean pose clusters matching M4_primary:
+        # [stem_leaf_angle_deg, projection_ratio, rel_projected_area, tip_gain, droop_ratio, pitch_entropy_b12]
+        #   0=convergent (small angle ~20, low rho 0.40, low Ah_rel 0.35, high tip_gain +0.75, low droop 0.01, low H_pit 0.50)
+        #   1=expanded   (mid angle ~42, high rho 0.65, high Ah_rel 0.85, mid tip_gain +0.22, low-mid droop 0.10, high H_pit 0.78)
+        #   2=drooping   (large angle ~68, mid rho 0.58, low Ah_rel 0.40, neg tip_gain -0.28, high droop 0.36, high H_pit 0.80)
         prototypes = np.array([
-            [20.0, +0.75, 0.02, 1.2, 0.35],
-            [50.0, +0.20, 0.12, 2.5, 0.62],
-            [80.0, -0.30, 0.38, 4.2, 0.68],
+            [20.0, 0.40, 0.35, +0.75, 0.01, 0.50],
+            [42.0, 0.65, 0.85, +0.22, 0.10, 0.78],
+            [68.0, 0.58, 0.40, -0.28, 0.36, 0.80],
         ])
-        scales = np.array([4.0, 0.06, 0.02, 0.25, 0.04])
+        scales = np.array([3.5, 0.04, 0.06, 0.06, 0.02, 0.04])
         X, y_true, plants = [], [], []
         for p in range(10):
             for c in (0, 0, 1, 1, 2, 2):
