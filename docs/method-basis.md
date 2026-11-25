@@ -74,13 +74,16 @@ S(s,v)=C(s)+r(s,v)b(s)+q(s,v)n(s).
 
 **叶宽选择理由：** 草本长条叶片可用“宽度随纵向位置变化”描述。包含玉米实测样本的 [Dornbusch 等（2011）](https://doi.org/10.1093/aob/mcq181)支持将叶形分成基部、远端两段建模。本项目按叶基到叶尖的方向重新参数化，使用分段幂函数并结合左右观测包络，配置的先验均值不能冒充原论文实测常数。
 
-源码的参考宽度函数为：
+源码的参考宽度函数分为两段。基部到最大宽度位置：
 
 ```math
-\frac{w(u)}{W}=\begin{cases}
-1-(1-k_\mathrm{lig})\left(\frac{x_m-u}{x_m}\right)^{c_2},&0\le u\le x_m,\\
-1-\left(\frac{u-x_m}{1-x_m}\right)^{c_1},&x_m<u\le1.
-\end{cases}
+\frac{w(u)}{W}=1-(1-k_{\mathrm{lig}})\left(\frac{x_m-u}{x_m}\right)^{c_2},\qquad 0\le u\le x_m.
+```
+
+最大宽度位置到叶尖：
+
+```math
+\frac{w(u)}{W}=1-\left(\frac{u-x_m}{1-x_m}\right)^{c_1},\qquad x_m<u\le1.
 ```
 
 其中 `u=s/L`，`W` 为参考最大宽度，`x_m` 为最大宽度位置，`k_lig` 为基部宽度比例，`c₁、c₂` 控制两段的形状。实际叶宽还受观测包络约束。拟合将观测宽度残差和标准化先验残差一起交给 `soft_l1` 稳健损失处理，先验惩罚强度和参数边界属于本地正则化设置。
