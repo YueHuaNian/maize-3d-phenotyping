@@ -113,6 +113,8 @@ def main():
     parser.add_argument("--margin-trim", type=float, default=0.05, help="曲率积分时单侧剔除的横向边缘比例")
     parser.add_argument("--basal-span-frac", type=float, default=0.15, help="计算基部茎叶角使用的叶基纵向跨度比例（已标定最优值 0.15）")
     parser.add_argument("--zbuf-resolution", type=int, default=360, help="五方向光遮挡 Z-buffer 光栅化主轴分辨率")
+    parser.add_argument("--turtle-resolution", type=int, default=160, help="den Dulk 46 方向 Turtle Sky 光栅化分辨率（已验证 <0.1%% 收敛）")
+    parser.add_argument("--skip-turtle46", action="store_true", help="跳过 46 方向 Turtle Sky 旋转不变受光计算")
     parser.add_argument("--envelope-bins", type=int, default=25, help="冠层径向包络 R(h) 的高度分箱数")
     parser.add_argument("--skip-sensitivity", action="store_true", help="跳过侧缘裁切与基部跨度敏感性诊断以加速运行")
     args = parser.parse_args()
@@ -137,6 +139,8 @@ def main():
             basal_span_frac=args.basal_span_frac,
             zbuf_resolution=args.zbuf_resolution,
             envelope_bins=args.envelope_bins,
+            include_turtle46=not args.skip_turtle46,
+            turtle_resolution=args.turtle_resolution,
         )
         all_leaves.extend(leaves)
         all_plants.append(plant_rec)

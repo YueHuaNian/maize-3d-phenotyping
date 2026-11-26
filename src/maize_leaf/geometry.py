@@ -177,7 +177,10 @@ def fit_stem_centerline(points):
         if np.sum((z >= a) & (z <= b)) >= 3
     ])
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(nodes, axis=0), axis=1))]
-    curve, lam = fit_pspline_gcv(s, nodes)
+    # 收紧茎秆样条平滑自由度（n_basis<=8, lam>=0.1），抑制叶鞘局部噪声引起的切向摆动。
+    curve, lam = fit_pspline_gcv(
+        s, nodes, n_basis=min(8, max(4, len(nodes) - 2)), lam_bounds=(1e-1, 1e5)
+    )
     ss = np.linspace(0.0, s[-1], 160)
     sampled = curve(ss)
     return sampled, {"s": ss.tolist(), "xyz": sampled.tolist(), "spline": spline_dict(curve), "gcv_lambda": lam}
@@ -266,13 +269,14 @@ def _farthest_point_sample(points, m, seed=2026):
     return points[sel].copy()
 
 
-def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
+def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.15, seed=2026):
     """通过 L1 中值收缩估计叶片骨架节点。
 
     L1-Medial Skeleton contraction (Huang et al. 2013, ACM TOG).
 
     Contracts the noisy, incomplete blade point cloud toward its 1D L1-median spine using
     locally weighted Weiszfeld attraction combined with directional linearity repulsion.
+    Uses 1%-99% robust bounding-box diagonal D_rob to prevent stray-outlier radius inflation.
     """
     rng = np.random.default_rng(seed)
     ref_idx = np.sort(rng.choice(len(points), min(len(points), 2400), replace=False))
@@ -282,7 +286,10 @@ def l1_medial_skeleton(points, n_samples=180, n_iters=10, mu=0.28, seed=2026):
 
     d_nn = cKDTree(Q).query(Q, k=2)[0][:, 1]
     spacing = float(np.median(d_nn))
-    diam = float(np.linalg.norm(np.ptp(Q, axis=0)))
+    q01, q99 = np.quantile(Q, [0.01, 0.99], axis=0)
+    diam = float(np.linalg.norm(q99 - q01))
+    if diam < 1e-12:
+        diam = float(np.linalg.norm(np.ptp(Q, axis=0)))
     h = max(0.12 * diam, 6.0 * spacing)
     h_max = max(0.24 * diam, h)
 

@@ -44,13 +44,14 @@ python -m pip install -r requirements.txt
 python scripts/visualize.py
 ```
 
-从原始数据完整运行，依次执行四个阶段：
+从原始数据完整运行，依次执行五个阶段：
 
 ```bash
 python scripts/run.py                              # 1. 点云去噪与三维叶面重建
 python scripts/extract_traits.py                   # 2. 提取几何表型与信息熵
 python scripts/classify_leaf_pose.py               # 3. 五因素叶姿分类
-python scripts/visualize.py                        # 4. 交互查看
+python scripts/compute_index.py                    # 4. 株型结构符合度指数 (I_A / I_L / I) 与四项验证
+python scripts/visualize.py                        # 5. 三维交互查看（含分类与整株/单叶指数）
 ```
 
 输入放在 `dataset/`：同名 TXT 点云与 CSV 标签文件配对，CSV 的 `semantic` 列中 0 表示茎秆，正整数表示叶片编号。原始数据只读；新实验请通过各入口的路径参数指定新的输出目录，参数用 `--help` 查看。
@@ -77,6 +78,7 @@ python scripts/visualize.py --export-viewer outputs/classification_v2/viewer
 | `outputs/maize_v2/` | 当前三维模型、网格与质量审计 |
 | `outputs/phenotypes_v2/` | 逐叶、逐株表型表与元数据 |
 | `outputs/classification_v2/` | 分类表、报告与离线查看器 |
+| `outputs/index_v2/` | 理想株型结构符合度指数（`I_A / I_L / I`）、四项检验与诊断图 |
 | `docs/`、`tests/` | 方法、验证记录与回归测试 |
 | `outputs/archive/`、`.cache/` | 历史归档与运行缓存 |
 

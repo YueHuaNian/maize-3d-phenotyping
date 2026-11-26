@@ -8,7 +8,8 @@
 | | `refine_surface_support.py` | 基于已有模型导出保守观测支撑域并审计（不重跑 TPS） | `python scripts/refine_surface_support.py --source <旧目录> --output <新目录>` |
 | **阶段 2：表型提取** | `extract_traits.py` | 提取单叶/整株几何表型、方向信息熵、光遮挡与冠层包络 | `python scripts/extract_traits.py` |
 | **阶段 3：姿态三分类** | `classify_leaf_pose.py` | 五因素三分类（紧缩/舒展/下垂）、LOPO 稳定性与诊断页 | `python scripts/classify_leaf_pose.py --height-weight 1.0 --far-height-diff-weight 1.0` |
-| **阶段 4：三维交互可视化** | `visualize.py` | 启动在线三维查看器、导出离线查看器或输出静态图 | `python scripts/visualize.py --export-viewer outputs/classification_v2/viewer` |
+| **阶段 4：株型符合度指数** | `compute_index.py` | 五因素联动理想株型结构符合度指数（`I_A` / `I_L` / `I`）与四项验证 | `python scripts/compute_index.py` |
+| **阶段 5：三维交互可视化** | `visualize.py` | 启动在线三维查看器、导出离线查看器（含分类与整株/单叶指数）或输出静态图 | `python scripts/visualize.py --export-viewer outputs/classification_v2/viewer` |
 | **研究验证与诊断** | `validate.py` | 统一执行贴合、留出、配对比较、去噪标定、表型窗口与历史消融 | `python scripts/validate.py --help` |
 | | `plot_validation.py` | 统一绘制已有验证结果与支撑域对照 | `python scripts/plot_validation.py --help` |
 | **工程测试** | `run_tests.py` | 运行全部 Python 单元测试及查看器前端逻辑测试 | `python scripts/run_tests.py` |

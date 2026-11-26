@@ -68,6 +68,24 @@ class ViewerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 viewer.load_classifications(path)
 
+    def test_ideotype_indices_attach_to_payload_and_hover(self):
+        """检查整株与单叶指数安全注入查看器载荷且缺失时不报错。"""
+        rec = {"cluster_kmeans": "convergent", "relative_height": .8}
+        pidx = {"p1": {"plant_id": "p1", "rank": 1, "composite_index_i": 80.4, "arch_index_ia": 74.8,
+                       "leaf_index_il": 86.0, "s_envelope": 0.47, "s_light": 0.78, "s_composition": 1.0,
+                       "mean_s_angle": 0.98, "mean_s_proj": 0.86, "mean_s_entropy": 0.71, "mean_s_far_dz": 0.90}}
+        lidx = {("p1", 2): {"plant_id": "p1", "leaf_id": 2, "leaf_index_il": 88.5,
+                            "s_angle": 0.95, "s_proj": 0.85, "s_entropy": 0.82, "s_far_dz": 0.92}}
+        payload = viewer.scene_to_plotly_payload(
+            self.scene(), {("p1", 2): rec}, "kmeans", plant_indices=pidx, leaf_indices=lidx
+        )
+        self.assertEqual(payload["info"]["plant_index"]["rank"], 1)
+        self.assertAlmostEqual(payload["info"]["leaves"][0]["ideotype"]["leaf_index_il"], 88.5)
+        surface = next(t for t in payload["traces"] if t["group"] == "surface")
+        self.assertIn("I_L=88.5", surface["hovertext"])
+        json.dumps(payload, allow_nan=False)
+        self.assertEqual(viewer.load_ideotype_indices(ROOT / ".cache/nonexistent_index_dir"), ({}, {}))
+
 
 if __name__ == "__main__":
     unittest.main()

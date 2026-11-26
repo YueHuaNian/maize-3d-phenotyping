@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 from scipy.interpolate import BSpline
 from scipy.spatial import cKDTree
-from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, extract_midrib, fit_pspline_gcv, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
+from maize_leaf.geometry import clean_leaf_points, double_reflection_rmf, extract_midrib, fit_pspline_gcv, fit_stem_centerline, l1_medial_skeleton, project_points_to_curve, reparameterize_arc_length
 from maize_leaf.morphology import DornbuschBlade, MaizeShapePrior, fit_dornbusch_blade
 from maize_leaf.pipeline import run
 from maize_leaf.surface import MaizeLeafModel, ModelConfig, ThinPlateSplineGCV, fit_leaf, leaf_mesh_grid, surface_orientation_diagnostics, triangle_areas, restrict_to_scan_support
@@ -363,6 +363,46 @@ class MaizeLeafV2Tests(unittest.TestCase):
         self.assertGreater(float(tree.query(patch)[0].min()), 0.05)
         self.assertGreater(float(tree.query(far_stray)[0].min()), 1.0)
         self.assertGreaterEqual(len(cleaned), int(0.98 * len(np.unique(xyz, axis=0))))
+
+    def test_stem_centerline_tangent_stability_under_noisy_slices(self):
+        """检查平滑约束后的茎秆中心线在叶鞘水平噪声下切向不剧烈摆动。"""
+        rng = np.random.default_rng(2026)
+        z = np.linspace(0.0, 1.2, 1200)
+        # Gently curved stem with horizontal leaf-sheath bulge/noise
+        x = 0.04 * np.sin(np.pi * z / 1.2) + rng.normal(scale=0.015, size=len(z))
+        y = rng.normal(scale=0.015, size=len(z))
+        stem_pts = np.column_stack([x, y, z])
+        sampled, info = fit_stem_centerline(stem_pts)
+        chord = sampled[-1] - sampled[0]
+        chord /= np.linalg.norm(chord)
+        diffs = np.diff(sampled, axis=0)
+        tangents = diffs / np.maximum(np.linalg.norm(diffs, axis=1, keepdims=True), 1e-12)
+        tilts_deg = np.degrees(np.arccos(np.clip(tangents @ chord, -1.0, 1.0)))
+        self.assertLess(float(np.max(tilts_deg)), 18.0)
+        self.assertGreaterEqual(info["gcv_lambda"], 0.1 - 1e-9)
+
+    def test_l1_skeleton_robD_resists_far_stray_outliers(self):
+        """检查 L1 骨架采用稳健对角线 D_rob 后对少量远端飞点保持稳定。"""
+        xyz, _, _, _, _, _, _ = make_synthetic_maize_leaf()
+        skel_clean, _ = l1_medial_skeleton(xyz, n_samples=100, seed=2026)
+        stray = np.array([[5.0, 5.0, 5.0], [-4.0, -4.0, 3.0]])
+        skel_stray, _ = l1_medial_skeleton(np.vstack([xyz, stray]), n_samples=100, seed=2026)
+        # Median distance of contracted skeleton nodes to clean skeleton remains tiny
+        d = cKDTree(skel_clean).query(skel_stray)[0]
+        self.assertLess(float(np.median(d)), 0.015)
+
+    def test_default_fit_excludes_joint_and_keeps_full_tps_bins(self):
+        """检查默认配置已移除 37 维 joint 候选并将 TPS 代表点上限提升至 700。"""
+        cfg = ModelConfig()
+        self.assertEqual(cfg.max_tps_points, 700)
+        self.assertFalse(cfg.include_joint_candidate)
+        xyz, normals, stem, _, hole, _, _ = make_synthetic_maize_leaf()
+        res = fit_leaf(xyz[~hole], stem, normals=normals[~hole],
+                       cfg=ModelConfig(nu=35, nv=13, conservative_support=True), leaf_id=1)
+        cand_names = [c["geometry_method"] for c in res["traits"]["geometry_candidates"]]
+        self.assertEqual(cand_names, ["initial", "smoothed", "axis", "linear"])
+        self.assertNotIn("joint", cand_names)
+        self.assertTrue(res["quality"]["passed"])
 
 
 if __name__ == "__main__":

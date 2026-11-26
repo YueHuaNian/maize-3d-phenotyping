@@ -142,6 +142,22 @@ class StageEClassificationTests(unittest.TestCase):
         self.assertEqual(len(set(labels[2:])), 1)  # p2 legitimately has only expanded leaves.
         self.assertEqual(raw[2], 0)  # An upright but large mature leaf is not a compact young leaf.
 
+    def test_five_factor_dimless_feature_is_scale_invariant(self):
+        """检查无量纲化第 5 特征 far_dz_norm 满足严格坐标缩放不变性。"""
+        self.assertEqual(PRIMARY_FEATURES[-1], "far_dz_norm")
+        X, _, plants = self._make_well_separated_plants()
+        h = np.linspace(0.05, 0.95, len(X))
+        obs_len = np.linspace(0.3, 0.9, len(X))
+        raw_dz = np.linspace(0.25, -0.35, len(X))
+        far_dz_norm_1x = np.clip(raw_dz / obs_len, -1.0, 1.0)
+        far_dz_norm_1000x = np.clip((raw_dz * 1000.0) / (obs_len * 1000.0), -1.0, 1.0)
+        X1 = np.column_stack([X, h, far_dz_norm_1x])
+        X2 = np.column_stack([X, h, far_dz_norm_1000x])
+        sc, mdl, Z1, _ = fit_and_anchor(X1, PRIMARY_FEATURES, seed=42)
+        l1, _, _ = contextual_predict(mdl, Z1, X1, plants, PRIMARY_FEATURES, DEFAULT_POSE_POLICY)
+        l2, _, _ = contextual_predict(mdl, sc.transform(X2), X2, plants, PRIMARY_FEATURES, DEFAULT_POSE_POLICY)
+        np.testing.assert_array_equal(l1, l2)
+
 
 if __name__ == "__main__":
     unittest.main()

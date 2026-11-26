@@ -15,7 +15,9 @@ from maize_leaf.traits import (
     _basal_surface_tangent_from_grid,
     _fundamental_forms_from_grid,
     _smooth_arc_centerline,
+    build_turtle_sky_46,
     compute_canopy_radial_envelope,
+    compute_turtle_sky_46_exposure,
     direction_unit_vector,
     element_projected_area,
     far_end_height_diff,
@@ -213,6 +215,35 @@ class StageDMathTraitsTests(unittest.TestCase):
         res_down = far_end_height_diff(droop_verts, stem, base_z=0.40)
         self.assertAlmostEqual(res_down["far_end_stem_dist"], 0.45, places=6)
         self.assertAlmostEqual(res_down["far_end_height_diff"], -0.18, places=6)
+
+    def test_turtle_sky_46_weights_and_z_rotation_invariance(self):
+        """检查 den Dulk (1989) 46 向 Turtle Sky 权重归一化与绕 Z 轴近旋转不变性。"""
+        dirs, w_soc, w_uni = build_turtle_sky_46()
+        self.assertEqual(dirs.shape, (46, 3))
+        np.testing.assert_allclose(np.linalg.norm(dirs, axis=1), 1.0, atol=1e-10)
+        self.assertAlmostEqual(float(np.sum(w_soc)), 1.0, places=10)
+        self.assertAlmostEqual(float(np.sum(w_uni)), 1.0, places=10)
+        self.assertTrue(np.all(dirs[:, 2] > 0.0))
+
+        # Asymmetric tilted 2-leaf canopy (strong azimuth preference)
+        v1 = np.array([[0.0, -0.1, 0.2], [0.8, -0.1, 0.6], [0.8, 0.1, 0.6], [0.0, 0.1, 0.2]], dtype=float)
+        v2 = np.array([[0.0, -0.1, 0.5], [-0.5, -0.1, 1.0], [-0.5, 0.1, 1.0], [0.0, 0.1, 0.5]], dtype=float)
+        verts = np.vstack([v1, v2])
+        faces = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]], dtype=np.int32)
+        fids = np.array([1, 1, 2, 2], dtype=np.int32)
+
+        vals_s, vals_star = [], []
+        for deg in (0.0, 30.0, 45.0, 60.0):
+            rad = np.radians(deg)
+            c, s = np.cos(rad), np.sin(rad)
+            R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            out = compute_turtle_sky_46_exposure(verts @ R.T, faces, fids, resolution=120)
+            vals_s.append(out["turtle46_s_light"])
+            vals_star.append(out["turtle46_star"])
+        cv_s = float(np.std(vals_s) / np.mean(vals_s))
+        cv_star = float(np.std(vals_star) / np.mean(vals_star))
+        self.assertLess(cv_s, 0.02)
+        self.assertLess(cv_star, 0.02)
 
 
 if __name__ == "__main__":

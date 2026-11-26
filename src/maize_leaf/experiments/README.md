@@ -15,6 +15,7 @@
 | `plot_euclidean_clustering.py` | `python scripts/plot_validation.py clustering` | 欧氏聚类敏感性图 |
 | `plot_sor_sensitivity.py` | `python scripts/plot_validation.py sor` | SOR 敏感性图 |
 | `plot_support_comparison.py` | `python scripts/plot_validation.py support` | 支撑域修正前后对照图 |
+| `plot_ideotype_index.py` | `python scripts/plot_validation.py index` | 理想株型结构符合度指数四联诊断图（PNG/PDF/SVG） |
 
 原有参数名继续有效。两个去噪绘图任务新增 `--root`，默认仍读取原标定结果目录；表型窗口标定新增 `--models-root`、`--cases-root`、`--output` 与 `--workers`，默认计算设置不变。
 

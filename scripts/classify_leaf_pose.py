@@ -46,7 +46,7 @@ from maize_leaf.viz import ensure_plotly_js
 
 COLORS = ["#1f77b4", "#1b9e77", "#d95f02"]
 HEIGHT_DEFINITION = "clip((leaf_base_z - stem_min_z) / (stem_max_z - stem_min_z), 0, 1)"
-FAR_HEIGHT_DIFF_DEFINITION = "z_far - z_base, where far is the leaf surface vertex with maximum 3D distance to the stem centerline"
+FAR_HEIGHT_DIFF_DEFINITION = "clip((z_far - z_base) / max(observed_length, 1e-6), -1, 1), dimensionless and coordinate-scale invariant"
 
 
 def load_traits(path):
@@ -62,6 +62,11 @@ def load_traits(path):
             raise ValueError(f"Duplicate plant/leaf key: {key}")
         seen.add(key)
         row["relative_height"] = float(row["stem_rel_height"])
+        if "far_dz_norm" not in row or row["far_dz_norm"] in (None, ""):
+            obs_len = max(float(row["observed_length"]), 1e-6)
+            row["far_dz_norm"] = float(np.clip(float(row["far_end_height_diff"]) / obs_len, -1.0, 1.0))
+        else:
+            row["far_dz_norm"] = float(row["far_dz_norm"])
         for name in PRIMARY_FEATURES:
             if not np.isfinite(float(row[name])):
                 raise ValueError(f"Non-finite {name} for {key}")
@@ -144,7 +149,7 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT,
         X = np.array([[float(r[name]) for name in features] for r in rows])
         weights = [
             weight if name == "relative_height"
-            else (far_weight if name == "far_end_height_diff" else 1.0)
+            else (far_weight if name in ("far_dz_norm", "far_end_height_diff") else 1.0)
             for name in features
         ]
         return lopo_validate(X, plants, features, seed=seed, feature_weights=weights,
@@ -174,7 +179,7 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT,
         oof = int(primary["oof_labels"][i])
         record = {"plant_id": row["plant_id"], "leaf_id": int(row["leaf_id"])}
         for name in ["stem_leaf_angle_deg", "projection_ratio", "rel_projected_area", "pitch_entropy_b12", "relative_height",
-                     "stem_rel_height", "norm_base_height", "far_end_height_diff", "far_end_stem_dist",
+                     "stem_rel_height", "norm_base_height", "far_end_height_diff", "far_dz_norm", "far_end_stem_dist",
                      "projected_area_element", "surface_area",
                      "quality_weight", "coverage_observed", "coverage_extrapolated", "tip_gain", "droop_ratio"]:
             record[name] = float(row[name])
@@ -218,7 +223,7 @@ def run(traits_csv, output, seed=42, height_weight=DEFAULT_HEIGHT_WEIGHT,
         policy_sensitivity.append({"endpoint_distance_ratio": ratio,
                                    "class_counts": {CLASS_NAMES[c]: int(np.sum(labels == c)) for c in range(3)}})
     report = {
-        "schema_version": "five_factor_apical_young_v3",
+        "schema_version": "five_factor_dimless_v4",
         "traits_csv": os.path.relpath(traits_csv, ROOT).replace("\\", "/"),
         "traits_sha256": hashlib.sha256(Path(traits_csv).read_bytes()).hexdigest(),
         "source_sha256": {s: hashlib.sha256((ROOT / s).read_bytes()).hexdigest() for s in sources},

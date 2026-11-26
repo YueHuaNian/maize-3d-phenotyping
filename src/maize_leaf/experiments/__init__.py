@@ -18,6 +18,7 @@ PLOT_TASKS = {
     "clustering": ("plot_euclidean_clustering", "欧氏聚类敏感性图"),
     "sor": ("plot_sor_sensitivity", "SOR 敏感性图"),
     "support": ("plot_support_comparison", "观测支撑域前后对照"),
+    "index": ("plot_ideotype_index", "理想株型结构符合度指数四联诊断图"),
 }
 
 

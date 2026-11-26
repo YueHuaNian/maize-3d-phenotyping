@@ -39,6 +39,7 @@ from maize_leaf.viz import ensure_plotly_js
 
 
 DEFAULT_CLASSIFICATION_CSV = ROOT / "outputs" / "classification_v2" / "leaf_classifications.csv"
+DEFAULT_INDEX_DIR = ROOT / "outputs" / "index_v2"
 
 CLASS_META = {
     "convergent": dict(zh="紧缩", en="convergent", color="#1f77b4", rgb=(31, 119, 180)),
@@ -112,13 +113,61 @@ def load_classifications(csv_path):
     return out
 
 
+def load_ideotype_indices(index_dir):
+    """读取阶段 F 整株与单叶理想株型符合度指数表（目录或文件缺失时返回空字典）。"""
+    if index_dir is None:
+        return {}, {}
+    root = Path(index_dir)
+    plant_csv = root / "plant_ideotype_index.csv"
+    leaf_csv = root / "leaf_ideotype_index.csv"
+    plant_out, leaf_out = {}, {}
+    if plant_csv.is_file():
+        with plant_csv.open("r", encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row["plant_id"]).strip()
+                if pid in plant_out:
+                    raise ValueError(f"Duplicate plant index key: {pid}")
+                plant_out[pid] = dict(
+                    plant_id=pid,
+                    rank=int(_parse_float(row.get("rank")) or 0),
+                    composite_index_i=_parse_float(row.get("composite_index_i")),
+                    arch_index_ia=_parse_float(row.get("arch_index_ia")),
+                    leaf_index_il=_parse_float(row.get("leaf_index_il")),
+                    s_envelope=_parse_float(row.get("s_envelope")),
+                    s_light=_parse_float(row.get("s_light")),
+                    s_composition=_parse_float(row.get("s_composition")),
+                    mean_s_angle=_parse_float(row.get("mean_s_angle")),
+                    mean_s_proj=_parse_float(row.get("mean_s_proj")),
+                    mean_s_entropy=_parse_float(row.get("mean_s_entropy")),
+                    mean_s_far_dz=_parse_float(row.get("mean_s_far_dz")),
+                )
+    if leaf_csv.is_file():
+        with leaf_csv.open("r", encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                pid = str(row["plant_id"]).strip()
+                lid = int(row["leaf_id"])
+                if (pid, lid) in leaf_out:
+                    raise ValueError(f"Duplicate leaf index key: {(pid, lid)}")
+                leaf_out[(pid, lid)] = dict(
+                    plant_id=pid,
+                    leaf_id=lid,
+                    leaf_index_il=_parse_float(row.get("leaf_index_il")),
+                    s_angle=_parse_float(row.get("s_angle")),
+                    s_proj=_parse_float(row.get("s_proj")),
+                    s_entropy=_parse_float(row.get("s_entropy")),
+                    s_far_dz=_parse_float(row.get("s_far_dz")),
+                    far_dz_norm=_parse_float(row.get("far_dz_norm")),
+                )
+    return plant_out, leaf_out
+
+
 def _class_info(cls_name):
     """查询叶片分类记录并提供缺失分类时的默认显示信息。"""
     return CLASS_META.get(cls_name, dict(zh="未分类", en="unknown", color="#8c8c8c", rgb=(140, 140, 140)))
 
 
-def _leaf_hover_text(leaf_id, cls_rec, active_mode):
-    """组合叶片编号、分类、四因素和质量提示文字。"""
+def _leaf_hover_text(leaf_id, cls_rec, active_mode, leaf_index=None):
+    """组合叶片编号、分类、五因素、单叶指数和质量提示文字。"""
     if not cls_rec:
         return f"叶片 {leaf_id}"
     col, mode_label = COLOR_MODE_COLUMNS.get(active_mode, ("cluster_kmeans", "五因素姿态分类 (K-means)"))
@@ -132,11 +181,19 @@ def _leaf_hover_text(leaf_id, cls_rec, active_mode):
         """将可选表型值格式化为悬浮提示文本。"""
         value = cls_rec.get(name)
         return f"{value:.{digits}f}" if value is not None else "—"
+    idx_line = ""
+    if leaf_index and leaf_index.get("leaf_index_il") is not None:
+        idx_line = (
+            f"<br><b>单叶符合度 I_L={leaf_index['leaf_index_il']:.1f}</b>"
+            f" (角 {100*(leaf_index.get('s_angle') or 0):.0f} / 投 {100*(leaf_index.get('s_proj') or 0):.0f}"
+            f" / 熵 {100*(leaf_index.get('s_entropy') or 0):.0f} / Δz {100*(leaf_index.get('s_far_dz') or 0):.0f})"
+        )
     return (
         f"<b>叶片 {leaf_id} · {cm['zh']} ({cm['en']})</b> [{mode_label}]"
         f"<br>茎叶角 θ={fmt('stem_leaf_angle_deg', 1)}° | 同株相对投影面积 P={fmt('rel_projected_area')} | 俯仰熵 H={fmt('pitch_entropy_b12')}"
         f"<br>相对着生高度 h={fmt('relative_height')} | 远端高差 Δz={fmt('far_end_height_diff')} | 观测覆盖率={fmt('coverage_observed')}"
         f"<br>边界比 r={fmt('distance_ratio_r')}"
+        f"{idx_line}"
         f"{flag_line}"
     )
 
@@ -234,9 +291,12 @@ def load_from_raw(input_root, plant=None, leaf=None):
     )
 
 
-def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
-    """将整株或单叶几何与分类信息打包为前端查看器所需的轻量 Plotly JSON 载荷。"""
+def scene_to_plotly_payload(scene, classifications=None, color_by="region",
+                            plant_indices=None, leaf_indices=None):
+    """将整株或单叶几何、分类及指数信息打包为前端查看器所需的轻量 Plotly JSON 载荷。"""
     classifications = classifications or {}
+    plant_indices = plant_indices or {}
+    leaf_indices = leaf_indices or {}
     use_class = color_by in COLOR_MODE_COLUMNS and bool(classifications)
     cls_col = COLOR_MODE_COLUMNS[color_by][0] if use_class else None
     mode_label = COLOR_MODE_COLUMNS[color_by][1] if use_class else "重建区域"
@@ -263,6 +323,7 @@ def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
     for item in scene["leaves"]:
         lid = item["leaf_id"]
         cls_rec = classifications.get((scene["plant"], lid))
+        leaf_idx = leaf_indices.get((scene["plant"], lid))
         cls_key = cls_rec.get(cls_col, "") if (use_class and cls_rec) else (cls_rec.get("cluster_kmeans", "") if cls_rec else "")
         cm = _class_info(cls_key)
         is_ambig = bool(cls_rec and cls_rec.get("ambiguous_r080"))
@@ -295,7 +356,7 @@ def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
                 x=m[:, 0].tolist(), y=m[:, 1].tolist(), z=m[:, 2].tolist(),
                 line=dict(color=midrib_color, width=midrib_width),
                 showlegend=False,
-                hovertext=_leaf_hover_text(lid, cls_rec, color_by) if cls_rec else f"叶片 {lid} 中脉",
+                hovertext=_leaf_hover_text(lid, cls_rec, color_by, leaf_idx) if cls_rec else f"叶片 {lid} 中脉",
                 hoverinfo="text",
             ))
             mid_idx = int(len(m) * 0.58)
@@ -307,13 +368,13 @@ def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
             lbl = f"L{lid} {cm['zh']}{mark}" if cls_rec else f"L{lid}"
             label_text.append(lbl)
             label_colors.append(cm["color"] if cls_rec else "#16372e")
-            label_hover.append(_leaf_hover_text(lid, cls_rec, color_by) if cls_rec else f"叶片 {lid}")
+            label_hover.append(_leaf_hover_text(lid, cls_rec, color_by, leaf_idx) if cls_rec else f"叶片 {lid}")
 
         if item["vertices"] is not None and len(item["faces"]):
             v = np.round(item["vertices"], 5)
             f, fr = item["faces"], item["face_regions"]
             if use_class:
-                hover_txt = _leaf_hover_text(lid, cls_rec, color_by)
+                hover_txt = _leaf_hover_text(lid, cls_rec, color_by, leaf_idx)
                 r_c, g_c, b_c = cm["rgb"]
                 traces.append(dict(
                     type="mesh3d",
@@ -355,6 +416,7 @@ def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
             surface_area=item["traits"].get("surface_area"),
             fit_rmse=item["traits"].get("fit_rmse"),
             classification=cls_rec,
+            ideotype=leaf_idx,
             active_class=cls_key,
             support_review_required=bool(item["traits"].get("support_review_required", False)),
             support_far_area_fraction=item["traits"].get("support_far_area_fraction"),
@@ -385,10 +447,12 @@ def scene_to_plotly_payload(scene, classifications=None, color_by="region"):
         mean_fit_rmse=float(np.mean([t.get("fit_rmse", 0.0) for t in trs])) if trs else 0.0,
         color_by=color_by if use_class else "region", has_classification=bool(classifications),
         class_counts=class_counts, n_ambiguous=n_ambiguous, n_lopo_switched=n_lopo_switched,
+        plant_index=plant_indices.get(scene["plant"]),
         leaves=leaf_summaries,
     )
     if n_leaves == 1:
         info["classification"] = leaf_summaries[0]["classification"]
+        info["ideotype"] = leaf_summaries[0]["ideotype"]
         info["active_class"] = leaf_summaries[0]["active_class"]
 
     title_suffix = f" · {mode_label}" if use_class else ""
@@ -419,7 +483,7 @@ def viewer_page(bootstrap=None, offline=False):
 
 
 def make_handler(root, catalog, init_plant, init_leaf, classifications, init_color_by,
-                 classification_metadata=None):
+                 classification_metadata=None, plant_indices=None, leaf_indices=None):
     """创建提供页面、目录和场景接口的 HTTP 处理器。"""
     from functools import lru_cache
     plotly_js = Path(root) / "assets" / "plotly.min.js"
@@ -428,7 +492,10 @@ def make_handler(root, catalog, init_plant, init_leaf, classifications, init_col
     def scene_json(plant, leaf, mode):
         """缓存并序列化请求场景，避免重复读取大网格。"""
         scene = load_scene_from_outputs(root, plant, leaf)
-        payload = scene_to_plotly_payload(scene, classifications=classifications, color_by=mode)
+        payload = scene_to_plotly_payload(
+            scene, classifications=classifications, color_by=mode,
+            plant_indices=plant_indices, leaf_indices=leaf_indices,
+        )
         return json.dumps(payload, ensure_ascii=False, allow_nan=False)
 
     class Handler(BaseHTTPRequestHandler):
@@ -479,7 +546,8 @@ def make_handler(root, catalog, init_plant, init_leaf, classifications, init_col
 
 
 def run_server(root, init_plant=None, init_leaf=None, port=8050, open_browser=True,
-               classifications=None, init_color_by="kmeans", classification_metadata=None):
+               classifications=None, init_color_by="kmeans", classification_metadata=None,
+               plant_indices=None, leaf_indices=None):
     """启动本地查看器服务并按参数打开浏览器。"""
     catalog = scan_catalog(root)
     if not catalog:
@@ -491,7 +559,8 @@ def run_server(root, init_plant=None, init_leaf=None, port=8050, open_browser=Tr
         raise ValueError(f"Unknown leaf: {init_leaf}")
     ensure_plotly_js(root)
     handler = make_handler(root, catalog, init_plant, init_leaf, classifications or {},
-                           init_color_by, classification_metadata)
+                           init_color_by, classification_metadata,
+                           plant_indices=plant_indices, leaf_indices=leaf_indices)
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"Viewer: {url} ({len(catalog)} plants)", flush=True)
@@ -505,7 +574,8 @@ def run_server(root, init_plant=None, init_leaf=None, port=8050, open_browser=Tr
         server.server_close()
 
 
-def export_classification_viewer(root, classification_csv, out_dir, default_color_by="kmeans"):
+def export_classification_viewer(root, classification_csv, out_dir, default_color_by="kmeans",
+                                 index_dir=DEFAULT_INDEX_DIR):
     """导出与在线查看器一致的离线 HTML 目录（index.html + 逐株页面，无需联网或本地服务）。"""
     from html import escape
     out_dir = Path(out_dir)
@@ -516,6 +586,8 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
     if not catalog:
         raise FileNotFoundError(f"No modeled plants under {root}")
     metadata = load_classification_metadata(classification_csv)
+    plant_indices, leaf_indices = load_ideotype_indices(index_dir)
+    has_idx = bool(plant_indices)
     out_dir.mkdir(parents=True, exist_ok=True)
     ensure_plotly_js(out_dir)
     counts = {c: 0 for c in CLASS_META}
@@ -524,7 +596,10 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
     for plant in catalog:
         scene = load_scene_from_outputs(root, plant)
         # Class mesh traces also carry per-face region colors for offline mode switching.
-        payload = scene_to_plotly_payload(scene, classifications, "kmeans")
+        payload = scene_to_plotly_payload(
+            scene, classifications, "kmeans",
+            plant_indices=plant_indices, leaf_indices=leaf_indices,
+        )
         bootstrap = dict(offline=True, catalog=catalog, initial_plant=plant, initial_leaf=None,
                          initial_color_by=default_color_by, payload=payload, has_classification=True,
                          classification_metadata=metadata)
@@ -537,30 +612,40 @@ def export_classification_viewer(root, classification_csv, out_dir, default_colo
         for c in counts:
             counts[c] += cc[c]
         cells = "".join(f'<td style="color:{CLASS_META[c]["color"]}">{cc[c]}</td>' for c in counts)
+        pidx = plant_indices.get(plant)
+        idx_cells = ""
+        if has_idx:
+            if pidx and pidx.get("composite_index_i") is not None:
+                idx_cells = (f'<td>#{pidx["rank"]}</td><td><b>{pidx["composite_index_i"]:.1f}</b></td>'
+                             f'<td>{pidx["arch_index_ia"]:.1f}</td><td>{pidx["leaf_index_il"]:.1f}</td>')
+            else:
+                idx_cells = '<td>—</td><td>—</td><td>—</td><td>—</td>'
         index_rows.append(f'<tr><td><a href="plant_{escape(plant, quote=True)}.html">{escape(plant)}</a></td>'
-                          f'<td>{n}</td>{cells}<td>{info["n_ambiguous"]}</td></tr>')
+                          f'<td>{n}</td>{cells}<td>{info["n_ambiguous"]}</td>{idx_cells}</tr>')
     weight = metadata.get("primary_model", {}).get("height_weight", "未记录")
     far_weight = metadata.get("primary_model", {}).get("far_height_diff_weight", "未记录")
+    idx_headers = '<th>排名</th><th>综合 I</th><th>构型 I_A</th><th>叶形 I_L</th>' if has_idx else ''
+    idx_link = ' · <a href="../../index_v2/index_analysis.html">查看株型符合度指数与四项验证报告</a>' if has_idx else ''
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>玉米叶片 · 五因素分类总览</title>
+<title>玉米叶片 · 五因素分类与株型符合度总览</title>
 <style>body{{margin:0;background:#f2f5f3;color:#183e32;font:15px/1.6 system-ui,'Microsoft YaHei',sans-serif}}
 header{{background:#123f33;color:#fff;padding:24px}}h1{{font-size:24px;margin:0}}
 main{{max-width:1100px;margin:auto;padding:24px}}.card{{background:#fff;padding:20px;border:1px solid #dce5df;border-radius:12px;margin-bottom:18px}}
 table{{border-collapse:collapse;width:100%}}th,td{{text-align:left;padding:11px;border-bottom:1px solid #e5ece7}}
 a{{color:#197452}}.chips{{display:flex;gap:20px;flex-wrap:wrap}}.table-scroll{{overflow:auto}}
-</style><header><h1>玉米叶片 · 五因素姿态分类</h1>
+</style><header><h1>玉米叶片 · 五因素姿态分类与株型符合度</h1>
 <div>茎叶角 θ · 同株相对投影面积 P · 俯仰熵 H · 相对茎秆着生高度 h · 远端高差 Δz</div></header><main>
 <div class="card chips"><b>{len(catalog)} 株 / {total} 片叶</b><span>紧缩 {counts['convergent']}</span>
 <span>舒展 {counts['expanded']}</span><span>下垂 {counts['drooping']}</span>
 <span>边界模糊 {ambiguous}</span></div>
 <div class="card"><b>点击植株打开交互视图</b><div class="table-scroll"><table>
-<tr><th>植株</th><th>叶片数</th><th>紧缩</th><th>舒展</th><th>下垂</th><th>边界</th></tr>
+<tr><th>植株</th><th>叶片数</th><th>紧缩</th><th>舒展</th><th>下垂</th><th>边界</th>{idx_headers}</tr>
 {''.join(index_rows)}</table></div></div>
 <div class="card">高度权重：{weight}，远端高差权重：{far_weight}（标准化后）。<br>
-紧缩候选为顶部小型未充分展开叶；没有每株类别配额。高度分布仅用于描述；下垂不等于衰老。<br>
+紧缩候选为顶部小型未充分展开叶；没有每株类别配额。高度分布仅用于描述；下垂不等于衰老；符合度指数衡量相对预设智能冠层参考的几何符合程度，不代表产量或叶龄。<br>
 <a href="../classification_analysis.html">查看交互式消融与高度权重对比</a> ·
-<a href="../leaf_classifications.csv">逐叶分类表</a> · <a href="../classification_report.json">参数与验证记录</a>
+<a href="../leaf_classifications.csv">逐叶分类表</a> · <a href="../classification_report.json">参数与验证记录</a>{idx_link}
 </div></main></html>"""
     index = out_dir / "index.html"
     index.write_text(html, encoding="utf-8")
@@ -676,6 +761,12 @@ def main():
         help="Stage E leaf_classifications.csv path (auto-loaded if present)",
     )
     p.add_argument(
+        "--index-dir",
+        type=Path,
+        default=DEFAULT_INDEX_DIR,
+        help="Stage F ideotype index directory (auto-loaded if plant/leaf index CSVs are present)",
+    )
+    p.add_argument(
         "--color-by",
         choices=("region", "kmeans"),
         default="kmeans",
@@ -706,6 +797,7 @@ def main():
 
     classifications = load_classifications(args.classification_csv)
     metadata = load_classification_metadata(args.classification_csv)
+    plant_indices, leaf_indices = load_ideotype_indices(args.index_dir)
     if args.color_by != "region" and not classifications:
         args.color_by = "region"
 
@@ -717,7 +809,10 @@ def main():
         return
 
     if args.export_viewer:
-        export_classification_viewer(args.root, args.classification_csv, args.export_viewer, default_color_by=args.color_by)
+        export_classification_viewer(
+            args.root, args.classification_csv, args.export_viewer,
+            default_color_by=args.color_by, index_dir=args.index_dir,
+        )
         return
 
     if args.model:
@@ -740,6 +835,8 @@ def main():
             classifications=classifications,
             init_color_by=args.color_by,
             classification_metadata=metadata,
+            plant_indices=plant_indices,
+            leaf_indices=leaf_indices,
         )
         return
 

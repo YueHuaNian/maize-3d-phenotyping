@@ -14,14 +14,16 @@ def main():
     p.add_argument("--leaf", type=int, help="仅重建指定语义编号叶片")
     p.add_argument("--nu", type=int, default=90, help="纵向网格采样数")
     p.add_argument("--nv", type=int, default=25, help="横向网格采样数")
-    p.add_argument("--max-tps-points", type=int, default=350, help="TPS 初始代表点上限")
+    p.add_argument("--max-tps-points", type=int, default=700, help="TPS 初始代表点上限（默认 700，完整保留 40x12 分箱）")
     p.add_argument("--refine-tps-points", type=int, default=700, help="贴合超阈时 TPS 加密点数上限（<=初始值则关闭）")
+    p.add_argument("--include-joint", action="store_true", help="将历史 37 维 joint 优化纳入候选池（默认关闭以防小样本过拟合）")
     p.add_argument("--no-tip-completion", action="store_true", help="关闭叶尖长度先验补全")
     p.add_argument("--no-prior-calibration", action="store_true", help="跳过数据集完整叶形先验标定")
     p.add_argument("--allow-unobserved-completion", action="store_true", help="启用历史全补全参数域（默认使用保守观测支撑域）")
     a = p.parse_args()
     cfg = ModelConfig(nu=a.nu, nv=a.nv, allow_tip_completion=not a.no_tip_completion,
                       max_tps_points=a.max_tps_points, refine_tps_points=a.refine_tps_points,
-                      conservative_support=not a.allow_unobserved_completion)
+                      conservative_support=not a.allow_unobserved_completion,
+                      include_joint_candidate=a.include_joint)
     run(a.input_root, a.output, a.plant, a.leaf, cfg, calibrate_prior=not a.no_prior_calibration)
     return 0

@@ -28,7 +28,7 @@ PRIMARY_FEATURES = [
     "rel_projected_area",
     "pitch_entropy_b12",
     "relative_height",
-    "far_end_height_diff",
+    "far_dz_norm",
 ]
 DEFAULT_HEIGHT_WEIGHT = 1.0  # 初始平方距离权重，尚未标定为生物学常数。
 DEFAULT_FAR_HEIGHT_DIFF_WEIGHT = 1.0  # 初始平方距离权重，尚未标定为生物学常数。
@@ -38,7 +38,7 @@ ABLATION_MODELS = {
     "M1_angle": ["stem_leaf_angle_deg"],
     "M2_angle_proj": ["stem_leaf_angle_deg", "rel_projected_area"],
     "M3_morphology": PRIMARY_FEATURES[:3],
-    "M4_no_entropy": ["stem_leaf_angle_deg", "rel_projected_area", "relative_height", "far_end_height_diff"],
+    "M4_no_entropy": ["stem_leaf_angle_deg", "rel_projected_area", "relative_height", "far_dz_norm"],
     "M5_no_far_diff": PRIMARY_FEATURES[:4],
     "M6_primary": PRIMARY_FEATURES,
 }

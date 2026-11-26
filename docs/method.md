@@ -85,7 +85,8 @@
 python scripts/run.py                    # 第一步：重建三维叶面
 python scripts/extract_traits.py         # 第二步：计算叶片和整株指标
 python scripts/classify_leaf_pose.py     # 第三步：分成三类
-python scripts/visualize.py              # 第四步：打开网页查看
+python scripts/compute_index.py          # 第四步：计算株型结构符合度指数与四项验证
+python scripts/visualize.py              # 第五步：打开网页查看（含分类与整株/单叶指数）
 ```
 
 | 默认结果位置 | 内容 |
@@ -95,6 +96,9 @@ python scripts/visualize.py              # 第四步：打开网页查看
 | `outputs/phenotypes_v2/plant_traits.csv` | 每株玉米的汇总指标 |
 | `outputs/classification_v2/leaf_classifications.csv` | 每片叶的类别 |
 | `outputs/classification_v2/classification_report.json` | 分类参数和验证结果 |
+| `outputs/index_v2/plant_ideotype_index.csv` | 整株综合指数 `I`、构型指数 `I_A`、叶形指数 `I_L` 及排名 |
+| `outputs/index_v2/leaf_ideotype_index.csv` | 单叶五因素理想符合度 `I_L` 与四项分值 |
+| `outputs/index_v2/index_report.json` | 指数目标参数、四项检验（单调性/扰动/Bootstrap/敏感性）与适用边界 |
 
 已有结果时，直接运行第四步即可。网页默认显示整株和观测区；点击叶片查看指标，勾选“仅看选中叶”可单独查看，勾选“显示插值/外推面”可查看补出的区域。
 

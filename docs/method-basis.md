@@ -241,12 +241,15 @@ IQR 退化时，代码回退到标准差或单位尺度。K-means 最小化样�
 
 | 参数或决定 | 当前来源 | 已有证据及适用范围 |
 |---|---|---|
-| 半径 `max(5δ,0.02D)`、块点数门槛 | 本地参数对照后选定 | [欧氏聚类标定](validation/euclidean_cluster_calibration_2026-11-25.json)；14 株、90 叶的内部比较 |
-| `K=8`、MAD 系数 `3.5` | 本地参数对照后选定 | [SOR 标定](validation/sor_calibration_2026-11-24.json)；同批数据内部比较 |
-| 先验均值、32 段宽度、2%/98% 边界、`2.5δ` 余量 | 模型配置与工程约束，部分先验可由本地完整叶拟合调整 | [支撑范围检查](validation/classification_feedback_2026-11-25.json)；未证明每个数值分别最优 |
-| TPS 代表点上限 `350/700`、5 个候选、排序分数及门禁 | 本项目数值精度、拟合质量与运算量的工程折中 | [质量审计](validation/leaf_quality_2026-11-24.json)与当前源码；历史审计对应其记录版本，不代表所有新输入均通过 |
-| 基部 15% 窗口、熵 12 档 | 测量口径，代码含窗口和分箱对照 | 对照评估估计稳定性，尚无人工基部方向、展开状态或叶龄真值的独立验证；不能声称窗口和分箱唯一最优 |
-| 高度权重 `1.0`、远端高差权重 `1.0`、面积阈值 `0.5`、顶部跨度 `0.15`、距离比 `2/3` | 项目预设的形态判定规则 | 有权重与距离比敏感性分析；未据独立生理标签标定这些阈值 |
+| 半径 `max(5δ,0.02D)`、块点数门槛 | 本地参数对照后选定 | [欧氏聚类标定](validation/euclidean_cluster_calibration_2026-11-25.json)及 2026-11-26 支撑域联合复验；14 株、90 叶内部比较 |
+| `K=8`、MAD 系数 `3.5` | 本地参数对照后选定 | [SOR 标定](validation/sor_calibration_2026-11-24.json)及 2026-11-26 支撑域联合复验；同批数据内部比较 |
+| 茎秆样条 `n_basis<=8, lam∈[0.1,1e5]`、L1 骨架 `D_rob` 与 `μ=0.15` | 2026-11-26 解析真值与留出标定升级 | [全流程再标定审计](validation/recalibration_upgrade_2026-11-26.json)；茎叶角最大抽样抖动降 7.6 倍，飞点半径膨胀降至 `1.0005×` |
+| 先验均值、32 段宽度、2%/98% 边界、`2.0δ` 收边余量 | 2026-11-26 90 叶 Pareto 标定微调（`2.5δ→2.0δ`） | [支撑范围检查](validation/classification_feedback_2026-11-25.json)与[再标定审计](validation/recalibration_upgrade_2026-11-26.json) |
+| TPS 代表点上限 `700`（完整保留 `40×12` 分箱）、4 候选池（移除默认 37 维 `joint`）、排序分数及门禁 | 2026-11-26 90 叶/28 叶 20% 空间留出标定升级 | [全流程再标定审计](validation/recalibration_upgrade_2026-11-26.json)；90 叶全通过，中位 P95 降 6.2%，去除 `joint.py` 20+ 手工权重 |
+| 基部 15% 窗口、熵 12 档、46 方向 Turtle Sky（SOC 加权）受光 | 窗口复验通过；受光替换为 den Dulk (1989) 文献标准无参方法 | 绕 Z 轴最大漂移由 `11.36%` 降至 `1.39%`（`ρ(0°,45°)=0.991`），`I_A` 中 `S_light` 方差贡献由负转正 |
+| 五因素无量纲化 `far_dz_norm = clip(Δz/L_obs, -1, 1)` | 2026-11-26 尺度不变性标定升级 | 坐标缩放 $2\times$ 分类翻转率由 `7.8%` 降至 `0.0%`，LOPO 折均 ARI 升至 `0.965`，蒙特卡洛扰动翻转率减半 |
+| 高度权重 `1.0`、无量纲远端高差权重 `1.0`、面积阈值 `0.5`、顶部跨度 `0.15`、距离比 `2/3` | 项目预设的形态判定规则 | 有权重与距离比敏感性分析；未据独立生理标签标定这些阈值 |
+| 株型符合度指数目标曲线（`I_A` / `I_L` / `I`，接入 46 向受光）、等权 `α=0.5` 与目标类别比例 `0.20/0.60/0.20` | 预注册智能冠层几何参考设置 | 完成单调性（PASS）、蒙特卡洛扰动（`ρ=0.978`）、剔除待查叶（`ρ=0.881`）、植株/叶级 Bootstrap（`ρ=0.842`, LOLO `1.000`）与 Dirichlet 敏感性（`ρ=0.978`）验证（[指数快照](validation/ideotype_index_2026-11-26.json)）；未做产量或外部生理标定 |
 | `k=3`、初始化 50 次、种子 42 | 三类任务定义与计算复现设置 | 算法文献支持求原型的方法；不支持三种天然生理状态的结论 |
 | 贴合告警 `max(6δ,0.15W)`、远离面积 5% 复查线 | 工程告警线 | 定位几何复查对象，不是置信区间或生物学合格线 |
 
@@ -272,4 +275,5 @@ IQR 退化时，代码回退到标准差或单位尺度。K-means 最小化样�
 12. Strable J, et al. 2017. *Maize YABBY Genes drooping leaf1 and drooping leaf2 Regulate Plant Architecture*. [DOI](https://doi.org/10.1105/tpc.16.00477)；[作者所在机构 USDA 的研究记录](https://www.ars.usda.gov/research/publications/publication/?seqNo115=333903)。
 13. Facette MR, et al. 2013. *Parallel Proteomic and Phosphoproteomic Analyses of Successive Stages of Maize Leaf Development*. [DOI](https://doi.org/10.1105/tpc.113.112227)；[全文](https://pmc.ncbi.nlm.nih.gov/articles/PMC3784581/)。
 14. Kass RE, Raftery AE. 1995. *Bayes Factors*. [DOI](https://doi.org/10.1080/01621459.1995.10476572)。
-15. Leopardi P. 2006. *A Partition of the Unit Sphere into Regions of Equal Area and Small Diameter*. [期刊论文全文](https://ftp.gwdg.de/pub/EMIS/journals/ETNA/vol.25.2006/pp309-327.dir/pp309-327.pdf)。
+15. Leopardi P. 2006. *A Partition of the Unit Sphere into Regions of Equal Area and Small Diameter*. [期刊论文全文](https://ftp.gwdg.de/pub/EMIS/journals/ETNA/vol.25.2006/pp309-327.dir/pp309-327.pdf).
+16. den Dulk JA. 1989. *The interpretation of remote sensing measurements over agricultural crops*. PhD Thesis, Wageningen Agricultural University（46 方向等立体角 Turtle Sky 半球划分与标准阴天 SOC 辐射加权，广泛用于 Caribu / GroIMP 玉米冠层截光模拟）.

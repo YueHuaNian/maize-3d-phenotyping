@@ -1,0 +1,133 @@
+{
+  "date": "2026-11-26",
+  "archive_baseline": "outputs/archive/20261126_pre_recalibration",
+  "p0_upgrades_applied": [
+    "P0-1: den Dulk (1989) 46-dir Turtle Sky (SOC) rotation-invariant light proxy in traits.py & ideotype.py",
+    "P0-2: Stem centerline P-spline smoothing (n_basis<=8, lam_bounds=(1e-1, 1e5)) in geometry.py",
+    "P0-3: Remove 37-dim joint.py from default candidate pool (4-candidate pool: initial/smoothed/axis/linear) in surface.py",
+    "P0-4: Raise default max_tps_points 350 -> 700 (keep all 40x12 median bins without random subsampling) in surface.py & cli.py",
+    "P0-5: Dimensionless 5th classification feature far_dz_norm = clip(dz / L_obs, -1, 1) in classification.py & classify_leaf_pose.py",
+    "P0-6: L1-medial skeleton robust bounding-box diagonal D_rob (1%-99%) & mu=0.15 in geometry.py",
+    "E9: Conservative scan support padding_spacing 2.5 -> 2.0 in surface.py"
+  ],
+  "stage1_reconstruction": {
+    "before": {
+      "n_leaves": 90,
+      "quality_passed": 90,
+      "candidate_wins": {
+        "axis": 38,
+        "linear": 11,
+        "smoothed": 26,
+        "joint": 7,
+        "initial": 8
+      },
+      "scan_distance_median_med": 0.0022379159384516654,
+      "scan_distance_p95_med": 0.009880607510418662,
+      "fit_rmse_med": 0.0062079415348014165,
+      "surface_support_mean_med": 0.004961709410848171,
+      "far_area_fraction_med": 0.0076102151750473135,
+      "support_review_gt5pct_count": 20,
+      "tps_training_points_med": 350.0
+    },
+    "after": {
+      "n_leaves": 90,
+      "quality_passed": 90,
+      "candidate_wins": {
+        "smoothed": 18,
+        "linear": 22,
+        "axis": 36,
+        "initial": 14
+      },
+      "scan_distance_median_med": 0.0021694524100790433,
+      "scan_distance_p95_med": 0.009270411093011018,
+      "fit_rmse_med": 0.005902310902921093,
+      "surface_support_mean_med": 0.00483091018519329,
+      "far_area_fraction_med": 0.01174800109623906,
+      "support_review_gt5pct_count": 23,
+      "tps_training_points_med": 661.5
+    }
+  },
+  "stage2_traits": {
+    "stem_leaf_angle_med_before_deg": 44.94657779196997,
+    "stem_leaf_angle_med_after_deg": 46.19400505368917,
+    "stem_leaf_angle_abs_diff_med_deg": 3.367900462770791,
+    "stem_leaf_angle_spearman": 0.9046302012594147,
+    "surface_area_rel_diff_med_pct": 2.8880078816262764,
+    "surface_area_spearman": 0.9781866074000904,
+    "turtle46_star_med": 0.4393388995394634,
+    "turtle46_non_overlap_med": 0.8388715877103389,
+    "turtle46_s_light_med": 0.8591142447245663
+  },
+  "stage3_classification": {
+    "before": {
+      "schema": "five_factor_apical_young_v3",
+      "features": [
+        "stem_leaf_angle_deg",
+        "rel_projected_area",
+        "pitch_entropy_b12",
+        "relative_height",
+        "far_end_height_diff"
+      ],
+      "lopo_oof_ari": 0.8435912654061679,
+      "lopo_fold_ari_mean": 0.8599483802262657,
+      "oof_switch_pct": 4.444444444444445,
+      "silhouette": 0.2815163741045212,
+      "class_counts": {
+        "convergent": 10,
+        "expanded": 45,
+        "drooping": 35
+      }
+    },
+    "after": {
+      "schema": "five_factor_dimless_v4",
+      "features": [
+        "stem_leaf_angle_deg",
+        "rel_projected_area",
+        "pitch_entropy_b12",
+        "relative_height",
+        "far_dz_norm"
+      ],
+      "lopo_oof_ari": 0.8463623492356731,
+      "lopo_fold_ari_mean": 0.9645837891948873,
+      "oof_switch_pct": 4.444444444444445,
+      "silhouette": 0.2730725729876138,
+      "class_counts": {
+        "convergent": 10,
+        "expanded": 51,
+        "drooping": 29
+      }
+    }
+  },
+  "stage4_ideotype_index": {
+    "before": {
+      "I_median": 73.96976061928763,
+      "I_A_median": 69.88434008134462,
+      "I_A_std": 3.0751971292528517,
+      "I_L_median": 78.46123894587555,
+      "mc_spearman_med": 0.956043956043956,
+      "exclude_review_spearman": 0.6835164835164835,
+      "leaf_boot_spearman_med": 0.7538461538461538,
+      "lolo_spearman_med": 0.9956043956043955,
+      "dirichlet_spearman_med": 0.9428571428571428
+    },
+    "after": {
+      "I_median": 74.24711241141816,
+      "I_A_median": 71.46397601113274,
+      "I_A_std": 4.8870860934840366,
+      "I_L_median": 76.09912249097246,
+      "ia_variance_share_pct": {
+        "s_envelope": 48.01979360774441,
+        "s_light": 13.909262186221374,
+        "s_composition": 38.07094420603416
+      },
+      "spearman_I_before_vs_after": 0.8857142857142857,
+      "spearman_IA_vs_IL_after": 0.7142857142857143,
+      "monotonicity_passed": true,
+      "mc_spearman_med": 0.9780219780219781,
+      "exclude_review_spearman": 0.8813186813186813,
+      "leaf_boot_spearman_med": 0.8417582417582418,
+      "lolo_spearman_med": 1.0,
+      "dirichlet_spearman_med": 0.9780219780219781
+    }
+  }
+}

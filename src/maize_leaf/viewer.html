@@ -26,6 +26,9 @@ aside{width:390px;flex-shrink:0;padding:15px;overflow:auto;border-left:1px solid
 .height-track{height:3px;background:#e4ebe6;margin-top:7px}.height-track i{display:block;height:100%;background:#8aa996}
 h2{font-size:14px;margin:0 0 8px}#featurePlot{height:250px;margin:-4px -6px}
 .kv{display:grid;grid-template-columns:1fr auto;gap:5px;font-size:12px}.kv b{font-variant-numeric:tabular-nums}
+.idx-hero{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px;text-align:center}
+.idx-box{background:#f4f8f5;border:1px solid #dce5df;border-radius:8px;padding:6px 4px}
+.idx-box span{display:block;font-size:11px;color:#526b5e}.idx-box b{font-size:16px;color:#123f33;font-variant-numeric:tabular-nums}
 .empty{padding:18px;text-align:center;color:#738278}.toggle-row{display:flex;gap:10px;flex-wrap:wrap;font-size:12px}
 @media(max-width:900px){aside{width:330px}.toolbar{font-size:12px}.main{min-height:500px}}
 @media(max-width:650px){body{height:auto;min-height:100vh}.main{display:block}#plot{height:62vh;min-height:380px}aside{width:100%;border-left:0}header{padding:10px}h1{font-size:16px}.toolbar{padding:8px}#featurePlot{height:230px}}
@@ -63,6 +66,7 @@ h2{font-size:14px;margin:0 0 8px}#featurePlot{height:250px;margin:-4px -6px}
 <aside>
 <p id="status" class="status" role="status">正在加载…</p>
 <div class="card"><div class="legend"><span><i class="dot" style="background:#1f77b4"></i>紧缩</span><span><i class="dot" style="background:#1b9e77"></i>舒展</span><span><i class="dot" style="background:#d95f02"></i>下垂</span></div><div id="summary"></div><p class="note" id="modelNote"></p></div>
+<div class="card" id="indexCard" hidden><h2>株型符合度指数（整株）</h2><div id="plantIndexInfo"></div><p class="note">基于预设智能冠层几何参考（等权主方案）；仅衡量形态符合度，不代表产量或叶龄。</p></div>
 <div class="card"><h2>五因素详情</h2><div id="selectionInfo" class="note">点击曲面、叶片卡片或下方散点选叶。</div></div>
 <div class="card"><h2>茎叶角与着生高度</h2><div id="featurePlot"></div><p class="note">颜色对应类别；点选可联动三维视图。高度已参与聚类，此图用于查看分布。</p></div>
 <h2>叶片 · 按着生高度从上到下</h2><div id="leafList"></div>
@@ -226,7 +230,7 @@ async function drawPlot(){
  renderSidebar(visible);
  await renderFeatures();
 }
-// 更新整株类别计数、选叶四因素和按着生高度排列的叶片卡片。
+// 更新整株类别计数、株型指数、选叶五因素及按着生高度排列的叶片卡片。
 function renderSidebar(visible){
  const leaves=allLeaves(), counts={convergent:0,expanded:0,drooping:0};
  leaves.forEach(l=>{if(record(l).cluster_kmeans in counts)counts[record(l).cluster_kmeans]++;});
@@ -234,22 +238,43 @@ function renderSidebar(visible){
  const weight=meta.primary_model?.height_weight;
  const farWeight=meta.primary_model?.far_height_diff_weight;
  el('modelNote').textContent='紧缩候选限于顶部小型叶；各株可缺少某些类别。默认显示观测支撑面；勾选“显示插值/外推面”查看完整估计域。高度权重 '+fmt(weight,2)+(farWeight==null?'':'，远端高差权重 '+fmt(farWeight,2))+'。';
+ const pidx=payload?.info?.plant_index;
+ if(el('indexCard')){
+  el('indexCard').hidden=!pidx;
+  if(pidx){
+   el('plantIndexInfo').innerHTML='<div class="idx-hero">'
+    +'<div class="idx-box"><span>综合 I'+(pidx.rank?' (#'+pidx.rank+')':'')+'</span><b>'+fmt(pidx.composite_index_i,1)+'</b></div>'
+    +'<div class="idx-box"><span>构型 I_A</span><b>'+fmt(pidx.arch_index_ia,1)+'</b></div>'
+    +'<div class="idx-box"><span>叶形 I_L</span><b>'+fmt(pidx.leaf_index_il,1)+'</b></div>'
+    +'</div><div class="kv">'
+    +[['包络符合度 S_env',fmt(pidx.s_envelope==null?null:100*pidx.s_envelope,1)],
+      ['受光效率 S_light',fmt(pidx.s_light==null?null:100*pidx.s_light,1)],
+      ['类别比例 S_comp',fmt(pidx.s_composition==null?null:100*pidx.s_composition,1)],
+      ['叶均值 (角/投/熵/Δz)',[pidx.mean_s_angle,pidx.mean_s_proj,pidx.mean_s_entropy,pidx.mean_s_far_dz].map(v=>fmt(v==null?null:100*v,0)).join(' / ')]
+     ].map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>';
+  }
+ }
  el('status').textContent='植株 '+state.plant+' · 显示 '+visible.length+' / '+leaves.length+' 片叶 · 拖动旋转，滚轮缩放';
- const selected=leaves.find(l=>l.leaf_id===state.leaf), r=selected?record(selected):null;
- el('selectionInfo').innerHTML=r?'<div class="kv">'+[
+ const selected=leaves.find(l=>l.leaf_id===state.leaf), r=selected?record(selected):null, lidx=selected?selected.ideotype:null;
+ const selRows=r?[
   ['叶片 / 类别','L'+selected.leaf_id+' · '+ci(r.cluster_kmeans).zh],
+  ...(lidx?[
+   ['单叶符合度 I_L',fmt(lidx.leaf_index_il,1)+' / 100'],
+   ['单叶分项 (角/投/熵/Δz)',[lidx.s_angle,lidx.s_proj,lidx.s_entropy,lidx.s_far_dz].map(v=>fmt(v==null?null:100*v,0)).join(' / ')]
+  ]:[]),
   ['茎叶角 θ',fmt(r.stem_leaf_angle_deg,1)+'°'],['相对投影面积 P',fmt(r.rel_projected_area,3)],
   ['俯仰熵 H（12分箱）',fmt(r.pitch_entropy_b12,3)],['相对着生高度 h',fmt(r.relative_height,3)],
   ['远端高差 Δz',fmt(r.far_end_height_diff,3)],
   ['水平投影面积',fmt(r.projected_area_element,4)],['观测面积占比',fmt(r.coverage_observed == null ? null : 100*r.coverage_observed,1)+'%'],
   ['外推面积占比',fmt(r.coverage_extrapolated == null ? null : 100*r.coverage_extrapolated,1)+'%'],['原始簇距离比 r',fmt(r.distance_ratio_r,3)],
   ['不含高度的原始聚类',ci(r.cluster_without_height).zh],['重建支撑复查',selected.support_review_required?'仍需人工核验':'未触发支撑告警'],['远离点云面积占比',fmt(selected.support_far_area_fraction==null?null:100*selected.support_far_area_fraction,1)+'%']
- ].map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>':'点击曲面、叶片卡片或散点查看五因素；默认保留整株，勾选“仅看选中叶”可隔离检查。';
+ ]:null;
+ el('selectionInfo').innerHTML=selRows?'<div class="kv">'+selRows.map(([k,v])=>'<span>'+k+'</span><b>'+esc(v)+'</b>').join('')+'</div>':'点击曲面、叶片卡片或散点查看五因素；默认保留整株，勾选“仅看选中叶”可隔离检查。';
  const sorted=[...leaves].filter(passes).sort((a,b)=>(record(b).relative_height??-1)-(record(a).relative_height??-1));
  el('leafList').innerHTML=sorted.length?sorted.map(l=>{
-  const r=record(l), c=ci(r.cluster_kmeans), selected=l.leaf_id===state.leaf;
+  const r=record(l), c=ci(r.cluster_kmeans), selected=l.leaf_id===state.leaf, li=l.ideotype;
   const tags=(r.ambiguous_r080?'<span class="tag">边界</span>':'')+(r.changed_by_height?'<span class="tag">对照不同</span>':'')+(l.support_review_required?'<span class="tag">支撑待查</span>':'')+(r.semantic_reassigned?'<span class="tag">语义调整</span>':'');
-  return '<button class="leaf-btn'+(selected?' selected':'')+'" style="border-left-color:'+c.color+'" data-leaf="'+l.leaf_id+'"><span class="leaf-head"><b>L'+l.leaf_id+'</b><span class="pill" style="background:'+c.color+'">'+c.zh+'</span>'+tags+'</span><span class="features"><span>θ '+fmt(r.stem_leaf_angle_deg,1)+'°</span><span>相对投影面积 '+fmt(r.rel_projected_area,3)+'</span><span>俯仰熵 '+fmt(r.pitch_entropy_b12,3)+'</span><span>相对高度 '+fmt(r.relative_height,3)+'</span><span>远端高差 Δz '+fmt(r.far_end_height_diff,3)+'</span></span><span class="height-track"><i style="width:'+Math.max(0,Math.min(100,100*(r.relative_height||0)))+'%"></i></span></button>';
+  return '<button class="leaf-btn'+(selected?' selected':'')+'" style="border-left-color:'+c.color+'" data-leaf="'+l.leaf_id+'"><span class="leaf-head"><b>L'+l.leaf_id+'</b><span class="pill" style="background:'+c.color+'">'+c.zh+'</span>'+tags+'</span><span class="features"><span>θ '+fmt(r.stem_leaf_angle_deg,1)+'°</span><span>相对投影面积 '+fmt(r.rel_projected_area,3)+'</span><span>俯仰熵 '+fmt(r.pitch_entropy_b12,3)+'</span><span>相对高度 '+fmt(r.relative_height,3)+'</span><span>远端高差 Δz '+fmt(r.far_end_height_diff,3)+'</span>'+(li?'<span>符合度 I_L '+fmt(li.leaf_index_il,1)+'</span>':'')+'</span><span class="height-track"><i style="width:'+Math.max(0,Math.min(100,100*(r.relative_height||0)))+'%"></i></span></button>';
  }).join(''):'<div class="empty">没有符合筛选条件的叶片。</div>';
  el('leafList').querySelectorAll('[data-leaf]').forEach(button=>button.onclick=()=>{const id=Number(button.dataset.leaf);selectLeaf(state.leaf===id?null:id);});
 }

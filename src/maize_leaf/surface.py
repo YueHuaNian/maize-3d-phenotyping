@@ -39,11 +39,12 @@ class ModelConfig:
     """集中保存去噪、几何拟合、采样和补全策略参数。"""
     nu: int = 90
     nv: int = 25
-    max_tps_points: int = 350
+    max_tps_points: int = 700
     refine_tps_points: int = 700
     allow_tip_completion: bool = True
     seed: int = 2026
     conservative_support: bool = False
+    include_joint_candidate: bool = False
 
 
 def tps_kernel(r):
@@ -358,7 +359,7 @@ class MaizeLeafModel:
                    float(d["domain_end"]) if "domain_end" in d else None)
 
 
-def restrict_to_scan_support(model, points, padding_spacing=2.5):
+def restrict_to_scan_support(model, points, padding_spacing=2.0):
     """按独立左右观测包络收紧活动域，并撤下未观测叶尖延长。
 
     Keep the fitted chart only within independent measured side envelopes.
@@ -427,7 +428,12 @@ def fit_leaf(points, stem, normals=None, prior=None, cfg=None, leaf_id=None,
         # 一条过度平滑中脉可能消除折叠却恶化贴合。
         retained, _ = cache["clean"]
         candidates = []
-        for mode in ("joint", "initial", "smoothed", "axis", "linear"):
+        candidate_modes = (
+            ("joint", "initial", "smoothed", "axis", "linear")
+            if cfg.include_joint_candidate
+            else ("initial", "smoothed", "axis", "linear")
+        )
+        for mode in candidate_modes:
             candidate = fit_leaf(points, stem, normals=normals, prior=prior, cfg=cfg,
                                  leaf_id=leaf_id, _geometry_mode=mode, _geometry_cache=cache)
             sv, _ = candidate["model"].mesh_grid(220, 61)

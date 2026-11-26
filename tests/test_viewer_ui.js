@@ -9,13 +9,18 @@ const html = fs.readFileSync(path.join(__dirname, '../src/maize_leaf/viewer.html
 const script = html.split('<script>')[1].split('</script>')[0];
 const leaves = ['convergent', 'expanded', 'drooping'].map((key, i) => ({
   leaf_id: i + 1, support_review_required:i===2,
+  ideotype: {leaf_index_il: 85 - 10 * i, s_angle: .9 - .1 * i, s_proj: .8, s_entropy: .75, s_far_dz: .85},
   classification: {cluster_kmeans: key, cluster_kmeans_lopo_oof: key,
     relative_height: .9 - .3 * i, far_end_height_diff: .4 - .3 * i, stem_leaf_angle_deg: 20 + 25 * i,
     projection_ratio: .5, rel_projected_area: .3 + .3*i, pitch_entropy_b12: .7, coverage_observed: .8,
     coverage_extrapolated: .1, ambiguous_r080: i === 1, lopo_switched: i === 2,
     changed_by_height: i === 2, cluster_without_height: 'expanded', distance_ratio_r: .7},
 }));
-const payload = {plant: 'p1', info: {leaves}, traces: [
+const payload = {plant: 'p1', info: {
+  plant_index: {rank: 2, composite_index_i: 77.4, arch_index_ia: 72.1, leaf_index_il: 82.7,
+    s_envelope: .55, s_light: .84, s_composition: .80,
+    mean_s_angle: .88, mean_s_proj: .80, mean_s_entropy: .75, mean_s_far_dz: .85},
+  leaves}, traces: [
   ...leaves.map(l => ({type: 'mesh3d', group: 'surface', leaf_id: l.leaf_id,
     color: '#123456', region_facecolors: ['#abcdef','#fedcba'], face_regions:[0,1], i:[0,0],j:[0,0],k:[0,0], x: [0], y: [0], z: [0]})),
   {type: 'scatter3d', group: 'labels', leaf_ids: [1, 2, 3], x: [0, 1, 2], y: [0, 0, 0], z: [1, .5, 0],
@@ -79,8 +84,11 @@ async function check(offline) {
   const surfaces = () => plots.get('plot').filter(t => t.type === 'mesh3d' && t.visible!==false);
   assert.equal(surfaces().length, 3);
   assert.match(elements.get('modelNote').textContent, /1\.00/);
+  assert.equal(elements.get('indexCard').hidden, false);
+  assert.match(elements.get('plantIndexInfo').innerHTML, /77\.4/);
   assert.match(elements.get('leafList').innerHTML, /相对高度/);
   assert.match(elements.get('leafList').innerHTML, /远端高差/);
+  assert.match(elements.get('leafList').innerHTML, /符合度 I_L/);
 
   await vm.runInContext('state.leaf=2; render()', context);
   assert.equal(surfaces().length, 3); // 选叶保留整株背景和网格缓冲。
@@ -94,6 +102,7 @@ async function check(offline) {
   elements.get('isolateLeaf').checked=false;
   assert.match(elements.get('selectionInfo').innerHTML, /相对着生高度/);
   assert.match(elements.get('selectionInfo').innerHTML, /远端高差/);
+  assert.match(elements.get('selectionInfo').innerHTML, /单叶符合度 I_L/);
   const marker=plots.get('plot').find(t=>t.name==='当前叶片');
   assert.deepEqual(Array.from(marker.x),[1]);
 
